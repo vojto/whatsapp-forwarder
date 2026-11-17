@@ -18,9 +18,14 @@ WhatsApp events ──▶ whatsapp.go ──▶ forwarder.db (queue.go) ◀─�
 - Every message is a row in `forwarder.db`, so pending forwards survive restarts.
 - **Read on the iPhone** (`read-self` receipt) or **replied in the chat** → not forwarded.
 - **Skipped**: groups with more than 5 members, archived chats.
-- **SMS format**: the sender is the contact's name as an alphanumeric sender ID (falls back to the
-  Twilio number when rejected). The body is `+421…: text`, or `+421… @ Group: text` for groups.
-  It is always one GSM-7 segment: diacritics stripped, emoji dropped, cut at 160 characters.
+- **SMS format**: the body is `+421…: text`, or `+421… @ Group: text` for groups. It is always one
+  GSM-7 segment: diacritics stripped, emoji dropped, links replaced by `[link]`, cut at 160 characters.
+- **Sender**: the contact's name as an alphanumeric sender ID, then `WA`, then the Twilio number.
+  Twilio error 21212 means the account has sender IDs disabled; they're then skipped for an hour
+  (each rejected request costs money). Falling back never counts as a failed attempt.
+- **Delivery**: after sending, Twilio is polled every 30 s until the SMS is `delivered`,
+  `undelivered` or `failed` (or `unknown` after 10 min), and the result is stored. Failed deliveries
+  are logged as `NOT DELIVERED`.
 - **After downtime** the scheduler waits for WhatsApp's offline sync, so messages read in the
   meantime are dropped. Unread ones are still forwarded late. Messages older than 12 h are marked stale.
 - **At most once**: a crash mid-send marks that message failed rather than risking a duplicate.
@@ -51,7 +56,7 @@ Link a device › *Link with phone number instead*, and enter it. The session is
 
 ```bash
 tail -f ~/Library/Logs/whatsapp-forwarder.log
-sqlite3 forwarder.db "select datetime(received_at/1000,'unixepoch','localtime'), status, reason, sender_name, text from messages order by received_at desc limit 20"
+sqlite3 forwarder.db "select datetime(received_at/1000,'unixepoch','localtime'), status, reason, delivery_status, delivery_error, sender_name, text from messages order by received_at desc limit 20"
 launchctl kickstart -k gui/$(id -u)/com.vojto.whatsapp-forwarder   # restart
 launchctl bootout gui/$(id -u)/com.vojto.whatsapp-forwarder        # stop
 ```

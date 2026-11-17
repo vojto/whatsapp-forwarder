@@ -5,6 +5,8 @@ package main
 //     so every forward costs exactly one segment.
 //   - Diacritics are stripped (č → c), typographic punctuation becomes ASCII, and anything else
 //     outside GSM-7 (emoji, non-Latin scripts) is dropped. Long text is cut and ends with "...".
+//   - Links become "[link]": carriers filter SMS with URLs from international senders, and a
+//     dumb phone can't open them anyway.
 //
 // Gotchas:
 //   - A single non-GSM character switches the whole SMS to UCS-2 (70 characters per segment),
@@ -13,6 +15,7 @@ package main
 //   - Alphanumeric sender IDs allow at most 11 letters, digits and spaces, with at least one letter.
 
 import (
+	"regexp"
 	"strings"
 	"unicode"
 
@@ -22,6 +25,9 @@ import (
 const smsSegmentUnits = 160
 const maxSenderIDLength = 11
 const smsCutMarker = "..."
+const linkPlaceholder = "[link]"
+
+var linkPattern = regexp.MustCompile(`(?i)\b(?:https?://|www\.)\S+`)
 
 var asciiReplacements = strings.NewReplacer(
 	"‘", "'", "’", "'", "‚", "'", "`", "'",
@@ -35,7 +41,7 @@ var asciiReplacements = strings.NewReplacer(
 // ---------------------------------------------------------------------------
 
 func singleSegmentSMS(text string) string {
-	plain := toGSMText(text)
+	plain := toGSMText(linkPattern.ReplaceAllString(text, linkPlaceholder))
 	if gsmUnits(plain) <= smsSegmentUnits {
 		return plain
 	}

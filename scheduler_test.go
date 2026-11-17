@@ -301,6 +301,100 @@ func TestPruneDeletesOnlyOldFinishedRows(t *testing.T) {
 	harness.expectMissing("old pending")
 }
 
+// Delivery
+// ---------------------------------------------------------------------------
+
+func TestDeliveryIsPolledUntilDelivered(t *testing.T) {
+	harness := newResumedHarness(t)
+	harness.sender.deliveriesBySID = map[string][]Delivery{"SM1": {{Status: "queued"}, {Status: "sent"}, {Status: "delivered"}}}
+	harness.add("M1", directChat, startTime)
+	harness.advance(forwardDelay)
+	sent := harness.expectStatus("M1", StatusSent)
+	if !sent.SentAt.Equal(startTime.Add(forwardDelay)) || sent.DeliveryStatus != "" {
+		t.Fatalf("after send: sent_at %v, delivery %q", sent.SentAt, sent.DeliveryStatus)
+	}
+
+	expectedStatuses := []string{"queued", "sent", "delivered"}
+	for _, expectedStatus := range expectedStatuses {
+		harness.advance(deliveryCheckInterval)
+		if message := harness.expectStatus("M1", StatusSent); message.DeliveryStatus != expectedStatus {
+			t.Fatalf("delivery status = %q, want %q", message.DeliveryStatus, expectedStatus)
+		}
+	}
+	harness.advance(deliveryCheckInterval)
+	harness.advance(deliveryCheckInterval)
+	if harness.sender.deliveryChecks != len(expectedStatuses) {
+		t.Errorf("checked %d times, want %d (no checks after delivered)", harness.sender.deliveryChecks, len(expectedStatuses))
+	}
+}
+
+func TestUndeliveredIsRecordedWithError(t *testing.T) {
+	harness := newResumedHarness(t)
+	harness.sender.deliveriesBySID = map[string][]Delivery{
+		"SM1": {{Status: "undelivered", ErrorCode: 30003, ErrorMessage: "Unreachable destination handset"}},
+	}
+	harness.add("M1", directChat, startTime)
+	harness.advance(forwardDelay)
+	harness.advance(deliveryCheckInterval)
+	harness.advance(deliveryCheckInterval)
+
+	message := harness.expectStatus("M1", StatusSent)
+	if message.DeliveryStatus != "undelivered" || message.DeliveryError != "30003 Unreachable destination handset" {
+		t.Errorf("delivery = %q / %q", message.DeliveryStatus, message.DeliveryError)
+	}
+	if harness.sender.deliveryChecks != 1 {
+		t.Errorf("checked %d times, want 1", harness.sender.deliveryChecks)
+	}
+}
+
+func TestDeliveryStillSentAfterTimeoutIsUnknown(t *testing.T) {
+	harness := newResumedHarness(t)
+	harness.sender.deliveriesBySID = map[string][]Delivery{"SM1": {{Status: "sent"}}}
+	harness.add("M1", directChat, startTime)
+	harness.advance(forwardDelay)
+
+	for elapsed := time.Duration(0); elapsed < deliveryTimeout-deliveryCheckInterval; elapsed += deliveryCheckInterval {
+		harness.advance(deliveryCheckInterval)
+	}
+	if message := harness.expectStatus("M1", StatusSent); message.DeliveryStatus != "sent" {
+		t.Fatalf("before timeout: delivery status = %q, want sent", message.DeliveryStatus)
+	}
+	harness.advance(deliveryCheckInterval)
+	message := harness.expectStatus("M1", StatusSent)
+	if message.DeliveryStatus != deliveryStatusUnknown || message.DeliveryError != "still sent after 10m0s" {
+		t.Errorf("after timeout: delivery = %q / %q", message.DeliveryStatus, message.DeliveryError)
+	}
+}
+
+func TestDeliveryChecksRunWhilePaused(t *testing.T) {
+	harness := newResumedHarness(t)
+	harness.add("M1", directChat, startTime)
+	harness.advance(forwardDelay)
+	harness.scheduler.Pause()
+	harness.advance(deliveryCheckInterval)
+
+	if message := harness.expectStatus("M1", StatusSent); message.DeliveryStatus != "delivered" {
+		t.Errorf("delivery status = %q, want delivered", message.DeliveryStatus)
+	}
+}
+
+func TestDeliveryCheckErrorIsRetriedLater(t *testing.T) {
+	harness := newResumedHarness(t)
+	harness.add("M1", directChat, startTime)
+	harness.advance(forwardDelay)
+	harness.sender.deliveryCheckErr = errors.New("twilio down")
+	harness.advance(deliveryCheckInterval)
+	if message := harness.expectStatus("M1", StatusSent); message.DeliveryStatus != "" {
+		t.Fatalf("delivery status after error = %q, want empty", message.DeliveryStatus)
+	}
+
+	harness.sender.deliveryCheckErr = nil
+	harness.advance(deliveryCheckInterval)
+	if message := harness.expectStatus("M1", StatusSent); message.DeliveryStatus != "delivered" {
+		t.Errorf("delivery status = %q, want delivered", message.DeliveryStatus)
+	}
+}
+
 // Formatting
 // ---------------------------------------------------------------------------
 
@@ -389,7 +483,7 @@ func (harness *harness) open() {
 		harness.t.Fatalf("fail interrupted sends: %v", err)
 	}
 	harness.queue = queue
-	harness.scheduler = NewScheduler(queue, harness.chats, harness.sender, harness.clock.Now)
+	harness.scheduler = NewScheduler(queue, harness.chats, harness.sender, harness.sender, harness.clock.Now)
 }
 
 // restart simulates the process dying (without finishing anything) and starting again.
@@ -503,9 +597,29 @@ type sentSMS struct {
 }
 
 // fakeSender records every Send call; scripted errors are returned by the next calls in order.
+// fakeSender is both the SMSSender and the DeliveryChecker. Deliveries are scripted per SID as a
+// sequence of statuses (the last one repeats); unscripted SIDs report "delivered".
 type fakeSender struct {
-	calls          []sentSMS
-	scriptedErrors []error
+	calls            []sentSMS
+	scriptedErrors   []error
+	deliveriesBySID  map[string][]Delivery
+	deliveryChecks   int
+	deliveryCheckErr error
+}
+
+func (sender *fakeSender) DeliveryStatus(ctx context.Context, twilioSID string) (Delivery, error) {
+	sender.deliveryChecks++
+	if sender.deliveryCheckErr != nil {
+		return Delivery{}, sender.deliveryCheckErr
+	}
+	deliveries := sender.deliveriesBySID[twilioSID]
+	if len(deliveries) == 0 {
+		return Delivery{Status: "delivered"}, nil
+	}
+	if len(deliveries) > 1 {
+		sender.deliveriesBySID[twilioSID] = deliveries[1:]
+	}
+	return deliveries[0], nil
 }
 
 func (sender *fakeSender) scriptErrors(scriptedErrors ...error) {

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"fmt"
 	"path/filepath"
 	"sync"
@@ -623,5 +624,67 @@ func expectStatus(t *testing.T, queue *Queue, messageID string, expected Message
 	t.Helper()
 	if actual := mustGet(t, queue, messageID).Status; actual != expected {
 		t.Errorf("%s status = %q, want %q", messageID, actual, expected)
+	}
+}
+
+// Schema
+// ---------------------------------------------------------------------------
+
+// A forwarder.db created before the delivery columns existed opens, gains them, and keeps its rows.
+func TestOpenQueueAddsMissingColumnsToOldDatabase(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "forwarder.db")
+	oldDatabase, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := oldDatabase.Exec(schema); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := oldDatabase.Exec(`INSERT INTO messages (message_id, received_at, due_at, status, updated_at)
+		VALUES ('old', 1, 2, 'pending', 3)`); err != nil {
+		t.Fatal(err)
+	}
+	oldDatabase.Close()
+
+	for range 2 {
+		queue, err := OpenQueue(path)
+		if err != nil {
+			t.Fatalf("open old database: %v", err)
+		}
+		message := mustGet(t, queue, "old")
+		if message.Status != StatusPending || message.DeliveryStatus != "" || !message.SentAt.IsZero() {
+			t.Errorf("migrated row: %+v", message)
+		}
+		queue.Close()
+	}
+}
+
+func TestUnconfirmedDeliveriesListsSentMessagesUntilFinal(t *testing.T) {
+	queue := openTestQueue(t)
+	now := baseTime.Add(forwardDelay)
+	for _, messageID := range []string{"message-1", "message-2"} {
+		mustAdd(t, queue, testMessage(messageID, "chat-1", baseTime), baseTime)
+		mustClaim(t, queue, now)
+		if err := queue.Finish(messageID, StatusSent, "", "SID-"+messageID, now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mustAdd(t, queue, testMessage("pending", "chat-1", baseTime.Add(time.Hour)), baseTime)
+
+	if err := queue.RecordDelivery("message-1", "sent", "", now); err != nil {
+		t.Fatal(err)
+	}
+	if err := queue.RecordDelivery("message-2", "undelivered", "30005 Unknown destination handset", now); err != nil {
+		t.Fatal(err)
+	}
+	unconfirmed, err := queue.UnconfirmedDeliveries()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(unconfirmed) != 1 || unconfirmed[0].MessageID != "message-1" || !unconfirmed[0].SentAt.Equal(now) {
+		t.Fatalf("unconfirmed = %+v, want only message-1", unconfirmed)
+	}
+	if stored := mustGet(t, queue, "message-2"); stored.DeliveryError != "30005 Unknown destination handset" {
+		t.Errorf("delivery error = %q", stored.DeliveryError)
 	}
 }

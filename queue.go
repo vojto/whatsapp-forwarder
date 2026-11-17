@@ -20,6 +20,10 @@ package main
 //   - A read receipt or reply can arrive while its row is sending. It can't change the status
 //     then, so it's recorded in cancelled_by; if that send is then retried, Retry finishes the row
 //     as read/replied instead of putting it back to pending.
+//   - Sent rows also track delivery: sent_at, and Twilio's delivery_status/delivery_error, filled
+//     in by the scheduler's delivery checks until the status is final.
+//   - Columns added after the first release live in addedColumns, not in schema: OpenQueue adds
+//     whichever an existing forwarder.db is missing, so old files keep working without a reset.
 //   - Times are stored as Unix milliseconds.
 
 import (
@@ -62,6 +66,10 @@ type Message struct {
 	Attempts    int
 	TwilioSID   string
 	UpdatedAt   time.Time
+
+	SentAt         time.Time
+	DeliveryStatus string
+	DeliveryError  string
 }
 
 type Queue struct {
@@ -88,8 +96,21 @@ CREATE INDEX IF NOT EXISTS messages_status_due_at ON messages (status, due_at);
 CREATE INDEX IF NOT EXISTS messages_chat_jid ON messages (chat_jid, status);
 `
 
+// addedColumns were added to messages after forwarder.db first shipped.
+var addedColumns = []struct {
+	name       string
+	definition string
+}{
+	{"sent_at", "INTEGER NOT NULL DEFAULT 0"},
+	{"delivery_status", "TEXT NOT NULL DEFAULT ''"},
+	{"delivery_error", "TEXT NOT NULL DEFAULT ''"},
+}
+
+// finalDeliveryStatuses are the delivery statuses that are never checked again.
+var finalDeliveryStatuses = []string{"delivered", "undelivered", "failed", deliveryStatusUnknown}
+
 const messageColumns = `message_id, chat_jid, sender_name, sender_phone, text, received_at, due_at,
-	status, reason, attempts, twilio_sid, updated_at`
+	status, reason, attempts, twilio_sid, updated_at, sent_at, delivery_status, delivery_error`
 
 // Lifecycle
 // ---------------------------------------------------------------------------
@@ -101,11 +122,12 @@ func OpenQueue(path string) (*Queue, error) {
 		return nil, err
 	}
 	database.SetMaxOpenConns(1)
-	if _, err := database.Exec(schema); err != nil {
+	queue := &Queue{database: database}
+	if err := queue.migrate(); err != nil {
 		database.Close()
-		return nil, fmt.Errorf("create schema: %w", err)
+		return nil, err
 	}
-	return &Queue{database: database}, nil
+	return queue, nil
 }
 
 func (queue *Queue) Close() error {
@@ -192,10 +214,12 @@ func (queue *Queue) ClaimNextDue(now time.Time) (Message, bool, error) {
 }
 
 // Finish records the final outcome of a claimed message (sent, skipped, stale or failed).
+// Sent messages get sent_at = now.
 func (queue *Queue) Finish(messageID string, status MessageStatus, reason string, twilioSID string, now time.Time) error {
-	_, err := queue.exec(`UPDATE messages SET status = ?, reason = ?, twilio_sid = ?, updated_at = ?
+	_, err := queue.exec(`UPDATE messages SET status = ?, reason = ?, twilio_sid = ?, updated_at = ?,
+		sent_at = CASE WHEN ? = ? THEN ? ELSE sent_at END
 		WHERE message_id = ? AND status = ?`,
-		status, reason, twilioSID, millis(now), messageID, StatusSending)
+		status, reason, twilioSID, millis(now), status, StatusSent, millis(now), messageID, StatusSending)
 	return err
 }
 
@@ -206,6 +230,42 @@ func (queue *Queue) Retry(messageID string, dueAt time.Time, reason string, now 
 		SET status = CASE cancelled_by WHEN '' THEN ? ELSE cancelled_by END, due_at = ?, reason = ?, updated_at = ?
 		WHERE message_id = ? AND status = ?`,
 		StatusPending, millis(dueAt), reason, millis(now), messageID, StatusSending)
+	return err
+}
+
+// Delivery
+// ---------------------------------------------------------------------------
+
+// UnconfirmedDeliveries returns sent messages whose delivery status isn't final yet, oldest first.
+func (queue *Queue) UnconfirmedDeliveries() ([]Message, error) {
+	placeholders := strings.TrimSuffix(strings.Repeat("?, ", len(finalDeliveryStatuses)), ", ")
+	arguments := []any{StatusSent}
+	for _, status := range finalDeliveryStatuses {
+		arguments = append(arguments, status)
+	}
+	rows, err := queue.database.Query(`SELECT `+messageColumns+` FROM messages
+		WHERE status = ? AND twilio_sid != '' AND delivery_status NOT IN (`+placeholders+`)
+		ORDER BY sent_at`, arguments...)
+	if err != nil {
+		return nil, fmt.Errorf("SELECT: %w", err)
+	}
+	defer rows.Close()
+	var messages []Message
+	for rows.Next() {
+		message, err := scanMessage(rows)
+		if err != nil {
+			return nil, err
+		}
+		messages = append(messages, message)
+	}
+	return messages, rows.Err()
+}
+
+// RecordDelivery stores Twilio's delivery status (and error, if any) for a sent message.
+func (queue *Queue) RecordDelivery(messageID string, deliveryStatus string, deliveryError string, now time.Time) error {
+	_, err := queue.exec(`UPDATE messages SET delivery_status = ?, delivery_error = ?, updated_at = ?
+		WHERE message_id = ? AND status = ?`,
+		deliveryStatus, deliveryError, millis(now), messageID, StatusSent)
 	return err
 }
 
@@ -228,6 +288,45 @@ func (queue *Queue) Get(messageID string) (Message, bool, error) {
 	return message, err == nil, err
 }
 
+// Schema
+// ---------------------------------------------------------------------------
+
+func (queue *Queue) migrate() error {
+	if _, err := queue.database.Exec(schema); err != nil {
+		return fmt.Errorf("create schema: %w", err)
+	}
+	existingColumns, err := queue.columnNames()
+	if err != nil {
+		return err
+	}
+	for _, column := range addedColumns {
+		if existingColumns[column.name] {
+			continue
+		}
+		if _, err := queue.database.Exec(`ALTER TABLE messages ADD COLUMN ` + column.name + ` ` + column.definition); err != nil {
+			return fmt.Errorf("add column %s: %w", column.name, err)
+		}
+	}
+	return nil
+}
+
+func (queue *Queue) columnNames() (map[string]bool, error) {
+	rows, err := queue.database.Query(`SELECT name FROM pragma_table_info('messages')`)
+	if err != nil {
+		return nil, fmt.Errorf("read columns: %w", err)
+	}
+	defer rows.Close()
+	names := map[string]bool{}
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, err
+		}
+		names[name] = true
+	}
+	return names, rows.Err()
+}
+
 // SQL helpers
 // ---------------------------------------------------------------------------
 
@@ -240,15 +339,19 @@ func (queue *Queue) exec(query string, arguments ...any) (int, error) {
 	return int(count), err
 }
 
-func scanMessage(row *sql.Row) (Message, error) {
+// scanMessage reads one messageColumns row from a *sql.Row or *sql.Rows.
+func scanMessage(row interface{ Scan(...any) error }) (Message, error) {
 	var message Message
-	var receivedAt, dueAt, updatedAt int64
+	var receivedAt, dueAt, updatedAt, sentAt int64
 	err := row.Scan(&message.MessageID, &message.ChatJID, &message.SenderName, &message.SenderPhone,
 		&message.Text, &receivedAt, &dueAt, &message.Status, &message.Reason, &message.Attempts,
-		&message.TwilioSID, &updatedAt)
+		&message.TwilioSID, &updatedAt, &sentAt, &message.DeliveryStatus, &message.DeliveryError)
 	message.ReceivedAt = time.UnixMilli(receivedAt)
 	message.DueAt = time.UnixMilli(dueAt)
 	message.UpdatedAt = time.UnixMilli(updatedAt)
+	if sentAt != 0 {
+		message.SentAt = time.UnixMilli(sentAt)
+	}
 	return message, err
 }
 

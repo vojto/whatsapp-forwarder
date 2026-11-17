@@ -9,6 +9,9 @@ package main
 //     retryBackoffs[attempt-1]; once the backoffs run out the message fails. Other errors fail it
 //     immediately.
 //   - Once per pruneInterval, finished rows older than pruneAfter are deleted.
+//   - Every deliveryCheckInterval, sent messages without a final delivery status are checked with
+//     Twilio and their status recorded. Undelivered/failed ones are logged loudly; ones still not
+//     final deliveryTimeout after sending are recorded as unknown.
 //
 // Gotchas:
 //   - The scheduler starts paused and only forwards after Resume, which the WhatsApp adapter calls
@@ -18,6 +21,7 @@ package main
 //   - A retry is a normal pending row, so a read receipt or reply during the backoff cancels it.
 //   - Queue errors stop the current tick; the row stays as it is and the next tick tries again
 //     (a row stuck in sending only becomes failed at the next startup).
+//   - Delivery checks run even while paused: they only talk to Twilio, not WhatsApp.
 //   - Run never cancels a tick in progress: cancelling a Twilio request mid-flight can leave an SMS
 //     sent but recorded as a temporary failure, and the retry would send it twice. On shutdown the
 //     current tick finishes, then Run returns.
@@ -36,6 +40,8 @@ const pollInterval = 5 * time.Second
 const staleAfter = 12 * time.Hour
 const pruneAfter = 30 * 24 * time.Hour
 const pruneInterval = time.Hour
+const deliveryCheckInterval = 30 * time.Second
+const deliveryTimeout = 10 * time.Minute
 
 // retryBackoffs[n-1] is the wait after the n-th failed attempt; failing beyond the last is final.
 var retryBackoffs = []time.Duration{30 * time.Second, 2 * time.Minute, 10 * time.Minute}
@@ -53,20 +59,56 @@ type SMSSender interface {
 
 var ErrTemporarySendFailure = errors.New("temporary send failure")
 
+// DeliveryChecker reads back the delivery status of a sent SMS by its Twilio SID.
+type DeliveryChecker interface {
+	DeliveryStatus(ctx context.Context, twilioSID string) (Delivery, error)
+}
+
+// Delivery is the carrier's view of a sent SMS, as reported by Twilio: Status is one of queued,
+// accepted, sending, sent, delivered, undelivered, failed (and others for features not used here).
+type Delivery struct {
+	Status       string
+	ErrorCode    int
+	ErrorMessage string
+}
+
+// deliveryStatusUnknown is recorded when Twilio still hasn't reported a final status after
+// deliveryTimeout (international delivery receipts sometimes never arrive).
+const deliveryStatusUnknown = "unknown"
+
+func (delivery Delivery) isFinal() bool {
+	return delivery.Status == "delivered" || delivery.isFailed()
+}
+
+func (delivery Delivery) isFailed() bool {
+	return delivery.Status == "undelivered" || delivery.Status == "failed"
+}
+
+// errorText is the delivery error as stored in the queue: "30003 Unreachable destination handset".
+func (delivery Delivery) errorText() string {
+	if delivery.ErrorCode == 0 {
+		return delivery.ErrorMessage
+	}
+	return strings.TrimSpace(fmt.Sprintf("%d %s", delivery.ErrorCode, delivery.ErrorMessage))
+}
+
 type Scheduler struct {
 	queue       *Queue
 	chats       ChatLookup
 	sms         SMSSender
+	deliveries  DeliveryChecker
 	now         Clock
 	isPaused    atomic.Bool
 	lastPruneAt time.Time
+
+	lastDeliveryCheckAt time.Time
 }
 
 // Lifecycle
 // ---------------------------------------------------------------------------
 
-func NewScheduler(queue *Queue, chats ChatLookup, sms SMSSender, now Clock) *Scheduler {
-	scheduler := &Scheduler{queue: queue, chats: chats, sms: sms, now: now}
+func NewScheduler(queue *Queue, chats ChatLookup, sms SMSSender, deliveries DeliveryChecker, now Clock) *Scheduler {
+	scheduler := &Scheduler{queue: queue, chats: chats, sms: sms, deliveries: deliveries, now: now}
 	scheduler.isPaused.Store(true)
 	return scheduler
 }
@@ -85,8 +127,9 @@ func (scheduler *Scheduler) Run(ctx context.Context) {
 	}
 }
 
-// Tick handles every due message once. Does nothing while paused.
+// Tick checks deliveries when due, then handles every due message once (not while paused).
 func (scheduler *Scheduler) Tick(ctx context.Context) {
+	scheduler.checkDeliveriesIfDue(ctx)
 	if scheduler.isPaused.Load() {
 		return
 	}
@@ -196,5 +239,51 @@ func (scheduler *Scheduler) pruneIfDue() {
 	}
 	if count > 0 {
 		log.Printf("pruned %d old messages", count)
+	}
+}
+
+// Delivery
+// ---------------------------------------------------------------------------
+
+func (scheduler *Scheduler) checkDeliveriesIfDue(ctx context.Context) {
+	now := scheduler.now()
+	if now.Sub(scheduler.lastDeliveryCheckAt) < deliveryCheckInterval {
+		return
+	}
+	scheduler.lastDeliveryCheckAt = now
+	messages, err := scheduler.queue.UnconfirmedDeliveries()
+	if err != nil {
+		log.Printf("queue error while listing deliveries: %v", err)
+		return
+	}
+	for _, message := range messages {
+		if ctx.Err() != nil {
+			return
+		}
+		scheduler.checkDelivery(ctx, message)
+	}
+}
+
+func (scheduler *Scheduler) checkDelivery(ctx context.Context, message Message) {
+	delivery, err := scheduler.deliveries.DeliveryStatus(ctx, message.TwilioSID)
+	if err != nil {
+		log.Printf("failed to check delivery of %s (%s): %v", message.MessageID, message.TwilioSID, err)
+		return
+	}
+	now := scheduler.now()
+	switch {
+	case delivery.isFailed():
+		log.Printf("NOT DELIVERED %s from %s: %s (%s)", message.MessageID, message.SenderName, delivery.Status, delivery.errorText())
+	case delivery.Status == "delivered":
+		log.Printf("delivered %s", message.MessageID)
+	case now.Sub(message.SentAt) >= deliveryTimeout:
+		log.Printf("delivery of %s unknown: still %s after %s", message.MessageID, delivery.Status, deliveryTimeout)
+		delivery = Delivery{Status: deliveryStatusUnknown, ErrorMessage: "still " + delivery.Status + " after " + deliveryTimeout.String()}
+	}
+	if delivery.Status == message.DeliveryStatus {
+		return
+	}
+	if err := scheduler.queue.RecordDelivery(message.MessageID, delivery.Status, delivery.errorText(), now); err != nil {
+		log.Printf("queue error while recording delivery of %s: %v", message.MessageID, err)
 	}
 }

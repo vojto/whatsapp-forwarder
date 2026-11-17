@@ -4,7 +4,8 @@
 // Expected behavior:
 //   - Runs as a linked WhatsApp device (whatsmeow) under launchd. whatsapp.go turns WhatsApp events
 //     into rows in forwarder.db (queue.go); scheduler.go forwards rows that are still pending when
-//     they become due, through Twilio (twilio.go), within the rules in rules.go.
+//     they become due, through Twilio (twilio.go), within the rules in rules.go, then polls Twilio
+//     until each SMS is delivered or known to have failed.
 //   - First run prints a pairing code to the log; enter it in WhatsApp > Linked devices >
 //     Link a device > Link with phone number instead. The session is then kept in store.db.
 //   - The scheduler starts paused and only runs after WhatsApp's offline sync, so messages read
@@ -53,7 +54,7 @@ func main() {
 	client := newClient(ctx)
 
 	sms := NewTwilioSender(config)
-	scheduler := NewScheduler(queue, newWhatsmeowChats(client), sms, time.Now)
+	scheduler := NewScheduler(queue, newWhatsmeowChats(client), sms, sms, time.Now)
 	whatsApp := NewWhatsApp(client, queue, scheduler, sms, time.Now, func() {
 		log.Fatal("logged out of WhatsApp; restarting into pairing")
 	})

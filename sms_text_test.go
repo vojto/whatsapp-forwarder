@@ -15,6 +15,7 @@ func TestSingleSegmentSMS(t *testing.T) {
 		{"drops emoji", "Jo idem 💃🏼", "Jo idem"},
 		{"converts punctuation", "“Hej” – it’s…", `"Hej" - it's...`},
 		{"drops non-latin", "Ahoj Привет", "Ahoj"},
+		{"replaces links", "Pozri https://example.com/a?b=1 a www.sme.sk!", "Pozri [link] a [link]"},
 	}
 	for _, testCase := range cases {
 		if actual := singleSegmentSMS(testCase.input); actual != testCase.expected {
