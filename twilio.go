@@ -4,7 +4,10 @@ package main
 //   - Send texts the body to the configured recipient (Vojto's Nokia) through Twilio's Messages
 //     API and returns the message SID.
 //   - With a sender ID, Twilio is asked to show it as the sender. If Twilio rejects the request
-//     with any 4xx other than 429, Send immediately retries once from the Twilio number.
+//     with any 4xx other than 429, Send immediately resends from the Twilio number, within the
+//     same Send call, so the fallback never counts as a failed attempt.
+//   - After the first rejection, sender IDs are skipped for the rest of the process: every send
+//     goes straight from the number and the rejection is logged only once.
 //   - Network errors, 5xx and 429 wrap ErrTemporarySendFailure so the scheduler retries later;
 //     any other 4xx from the number is a permanent error.
 //
@@ -13,6 +16,9 @@ package main
 //     but the codes aren't stable enough to rely on, so every non-temporary 4xx falls back.
 //   - A temporary failure from the sender ID must not fall back: the scheduler's retry will try
 //     the sender ID again, and the number fallback would otherwise hide outages.
+//   - Sender ID support is an account/route setting (as of 2026-11 this account rejects them with
+//     HTTP 400 "Invalid From Number (caller ID)"). After enabling it in the Twilio console, restart
+//     the agent so sender IDs are tried again.
 //   - Errors must never include the auth token; it only travels in the basic auth header.
 
 import (
@@ -25,6 +31,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -38,6 +45,8 @@ type TwilioSender struct {
 	recipientNumber string
 	apiBaseURL      string
 	httpClient      *http.Client
+
+	isSenderIDRejected atomic.Bool
 }
 
 // twilioRejection is a non-temporary 4xx response: the request itself was refused.
@@ -76,7 +85,7 @@ func NewTwilioSender(config Config) *TwilioSender {
 // Send texts the body to the recipient, showing senderID as the sender, or the Twilio number
 // when senderID is empty or rejected.
 func (sender *TwilioSender) Send(ctx context.Context, senderID string, body string) (string, error) {
-	if senderID == "" {
+	if senderID == "" || sender.isSenderIDRejected.Load() {
 		return sender.post(ctx, sender.fromNumber, body)
 	}
 
@@ -85,7 +94,9 @@ func (sender *TwilioSender) Send(ctx context.Context, senderID string, body stri
 	if !errors.As(err, &rejection) {
 		return sid, err
 	}
-	log.Printf("sender ID %q rejected, using number: %v", senderID, err)
+	if sender.isSenderIDRejected.CompareAndSwap(false, true) {
+		log.Printf("sender ID %q rejected, sending from the number until restart: %v", senderID, err)
+	}
 	return sender.post(ctx, sender.fromNumber, body)
 }
 

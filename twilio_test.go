@@ -1,9 +1,12 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -161,6 +164,48 @@ func TestTwilioSendRejectedSenderIDFallsBackToNumber(t *testing.T) {
 		t.Fatalf("Send = %q, %v", sid, err)
 	}
 	assertFromSequence(t, fake.requests(), "Mom", testFromNumber)
+}
+
+func TestTwilioSendAfterRejectionSkipsSenderIDsAndLogsOnce(t *testing.T) {
+	fake := newFakeTwilio(t, map[string]twilioReply{
+		"Mom":          errorReply(http.StatusBadRequest, 21212, "Invalid From Number (caller ID): Mom"),
+		"Dad":          errorReply(http.StatusBadRequest, 21212, "Invalid From Number (caller ID): Dad"),
+		testFromNumber: successReply("SM4"),
+	})
+	var output bytes.Buffer
+	log.SetOutput(&output)
+	t.Cleanup(func() { log.SetOutput(io.Discard) })
+	sender := newTestTwilioSender(fake.server.URL)
+
+	for _, senderID := range []string{"Mom", "Dad", "Mom"} {
+		if sid, err := sender.Send(context.Background(), senderID, "hello"); err != nil || sid != "SM4" {
+			t.Fatalf("Send(%q) = %q, %v", senderID, sid, err)
+		}
+	}
+	assertFromSequence(t, fake.requests(), "Mom", testFromNumber, testFromNumber, testFromNumber)
+	if count := strings.Count(output.String(), "sender ID"); count != 1 {
+		t.Errorf("logged the rejection %d times, want once:\n%s", count, output.String())
+	}
+}
+
+// The account rejects alphanumeric sender IDs: a forward still succeeds on its first attempt.
+func TestRejectedSenderIDIsNotAFailedForwardAttempt(t *testing.T) {
+	fake := newFakeTwilio(t, map[string]twilioReply{
+		"Klaudia":      errorReply(http.StatusBadRequest, 21212, "Invalid From Number (caller ID): Klaudia"),
+		testFromNumber: successReply("SM5"),
+	})
+	harness := newHarness(t)
+	harness.scheduler = NewScheduler(harness.queue, harness.chats, newTestTwilioSender(fake.server.URL), harness.clock.Now)
+	harness.scheduler.Resume()
+
+	harness.add("M1", directChat, startTime)
+	harness.advance(forwardDelay)
+
+	message := harness.expectStatus("M1", StatusSent)
+	if message.Attempts != 1 || message.TwilioSID != "SM5" || message.Reason != "" {
+		t.Errorf("after fallback: attempts %d, sid %q, reason %q", message.Attempts, message.TwilioSID, message.Reason)
+	}
+	assertFromSequence(t, fake.requests(), "Klaudia", testFromNumber)
 }
 
 func TestTwilioSendServerErrorFromSenderIDIsTemporaryWithoutFallback(t *testing.T) {
