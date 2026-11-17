@@ -1,0 +1,7 @@
+# Secrets and the paired WhatsApp session: never commit
+.env
+store.db*
+forwarder.db*
+# Build output and logs
+/whatsapp-forwarder
+*.log

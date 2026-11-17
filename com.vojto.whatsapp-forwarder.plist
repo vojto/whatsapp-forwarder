@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.vojto.whatsapp-forwarder</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/Users/vojto/Code/whatsapp-forwarder/whatsapp-forwarder</string>
+	</array>
+	<key>WorkingDirectory</key>
+	<string>/Users/vojto/Code/whatsapp-forwarder</string>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<true/>
+	<key>ThrottleInterval</key>
+	<integer>30</integer>
+	<!-- The app writes its own size-capped log (whatsapp-forwarder.log); this file only catches panics. -->
+	<key>StandardOutPath</key>
+	<string>/Users/vojto/Library/Logs/whatsapp-forwarder.crash.log</string>
+	<key>StandardErrorPath</key>
+	<string>/Users/vojto/Library/Logs/whatsapp-forwarder.crash.log</string>
+</dict>
+</plist>
