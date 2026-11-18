@@ -2,7 +2,7 @@ package main
 
 // Expected behavior:
 //   - Incoming person/group messages with something to show go into the queue; the scheduler
-//     forwards them later. Vojto's own messages mark the chat's pending messages replied, and
+//     forwards them later. your own messages mark the chat's pending messages replied, and
 //     read-self receipts (read on another device) mark messages read.
 //   - The scheduler only runs between OfflineSyncCompleted and the next disconnect, so the offline
 //     backlog's receipts and replies are applied before anything due gets forwarded. If the server
@@ -19,7 +19,7 @@ package main
 //     number whenever the LID map knows it, so "replied" matches across both forms.
 //   - Senders usually arrive as anonymous @lid JIDs. The phone number comes from SenderAlt or the
 //     LID map in store.db, and is left empty when neither knows it.
-//   - Names prefer Vojto's address book (synced into store.db) over the sender's own push name.
+//   - Names prefer your address book (synced into store.db) over the sender's own push name.
 //   - Disconnected is dispatched from a goroutine, so it isn't ordered with message events or with
 //     the next Connected (whatsmeow's first reconnect attempt has no delay). A Disconnected that
 //     arrives while the socket is already connected again is stale and ignored. Connected itself

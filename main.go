@@ -1,4 +1,4 @@
-// whatsapp-forwarder: forwards WhatsApp messages by SMS when Vojto hasn't seen them on his iPhone
+// whatsapp-forwarder: forwards WhatsApp messages by SMS when you haven't seen them on your main phone
 // within three minutes.
 //
 // Expected behavior:

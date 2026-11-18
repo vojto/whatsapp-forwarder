@@ -3,7 +3,7 @@ package main
 // Expected behavior:
 //   - forwarder.db holds every incoming message the forwarder cares about, one row per WhatsApp
 //     message ID, so pending forwards survive restarts. whatsmeow's store.db is never touched here.
-//   - Rows start pending with due_at = received_at + forwardDelay. Read receipts and Vojto's own
+//   - Rows start pending with due_at = received_at + forwardDelay. Read receipts and your own
 //     messages move pending rows to read/replied; the scheduler claims due rows (sending) and
 //     finishes them as sent/skipped/stale/failed, or puts them back to pending for a retry.
 //   - Every status change only applies to rows still in the expected state, so a read receipt can
@@ -180,7 +180,7 @@ func (queue *Queue) MarkRead(messageIDs []string, now time.Time) (int, error) {
 	return cancelled, nil
 }
 
-// MarkReplied marks pending messages in the chat received at or before Vojto's message as replied.
+// MarkReplied marks pending messages in the chat received at or before your own message as replied.
 func (queue *Queue) MarkReplied(chatJID string, repliedAt time.Time, now time.Time) (int, error) {
 	count, err := queue.exec(`UPDATE messages SET status = ?, reason = '', updated_at = ?
 		WHERE chat_jid = ? AND status = ? AND received_at <= ?`,

@@ -1,7 +1,7 @@
 package main
 
 // Expected behavior:
-//   - Send texts the body to the configured recipient (Vojto's Nokia) through Twilio's Messages
+//   - Send texts the body to the configured recipient (e.g. a dumb phone) through Twilio's Messages
 //     API and returns the message SID. It tries the senders in order: the contact's name as an
 //     alphanumeric sender ID, then the fixed sender ID "WA", then the Twilio number. All of that
 //     happens within one Send call, so falling back never counts as a failed forward attempt.

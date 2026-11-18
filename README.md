@@ -1,9 +1,10 @@
 # whatsapp-forwarder
 
-Forwards WhatsApp messages by SMS to a dumb phone when they haven't been seen on the iPhone within
-three minutes.
+Forwards WhatsApp messages by SMS to a dumb phone when they haven't been seen on your main phone
+within three minutes. Useful when you leave the smartphone at home but still want to know about
+messages that need you.
 
-It runs on the Mac Studio as a linked WhatsApp device ([whatsmeow](https://github.com/tulir/whatsmeow))
+It runs on a Mac as a linked WhatsApp device ([whatsmeow](https://github.com/tulir/whatsmeow))
 under launchd, and sends SMS through Twilio.
 
 ## How it works
@@ -16,7 +17,7 @@ WhatsApp events ──▶ whatsapp.go ──▶ forwarder.db (queue.go) ◀─�
 ```
 
 - Every message is a row in `forwarder.db`, so pending forwards survive restarts.
-- **Read on the iPhone** (`read-self` receipt) or **replied in the chat** → not forwarded.
+- **Read on your phone** (`read-self` receipt) or **replied in the chat** → not forwarded.
 - **Skipped**: groups with more than 5 members, archived chats.
 - **SMS format**: the body is `+421…: text`, or `+421… @ Group: text` for groups. It is always one
   GSM-7 segment: diacritics stripped, emoji dropped, links replaced by `[link]`, cut at 160 characters.
@@ -34,10 +35,15 @@ WhatsApp events ──▶ whatsapp.go ──▶ forwarder.db (queue.go) ◀─�
 
 ## Setup
 
+Requires macOS, Go and a Twilio account.
+
 ```bash
 cp .env.example .env   # fill in Twilio credentials and the recipient number
 ./install.sh           # runs tests, builds, (re)starts the launchd agent
 ```
+
+`install.sh` fills in this checkout's path in the launchd plist and installs it to
+`~/Library/LaunchAgents`.
 
 On first start the log shows a pairing code. On the phone, open WhatsApp › Linked devices ›
 Link a device › *Link with phone number instead*, and enter it. The session is kept in `store.db`.
@@ -70,3 +76,7 @@ go test ./...
 Scenario tests (`scheduler_test.go`, `whatsapp_test.go`) run on a real SQLite queue with a fake
 clock, fake SMS sender and fake WhatsApp lookups. They cover restarts, offline backlog, crashes mid-send,
 retries and connection alerts.
+
+## License
+
+MIT, see [LICENSE](LICENSE). Uses [whatsmeow](https://github.com/tulir/whatsmeow) (MPL-2.0).

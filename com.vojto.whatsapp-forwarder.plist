@@ -6,10 +6,10 @@
 	<string>com.vojto.whatsapp-forwarder</string>
 	<key>ProgramArguments</key>
 	<array>
-		<string>/Users/vojto/Code/whatsapp-forwarder/whatsapp-forwarder</string>
+		<string>__INSTALL_DIR__/whatsapp-forwarder</string>
 	</array>
 	<key>WorkingDirectory</key>
-	<string>/Users/vojto/Code/whatsapp-forwarder</string>
+	<string>__INSTALL_DIR__</string>
 	<key>RunAtLoad</key>
 	<true/>
 	<key>KeepAlive</key>
@@ -18,8 +18,8 @@
 	<integer>30</integer>
 	<!-- The app writes its own size-capped log (whatsapp-forwarder.log); this file only catches panics. -->
 	<key>StandardOutPath</key>
-	<string>/Users/vojto/Library/Logs/whatsapp-forwarder.crash.log</string>
+	<string>__HOME__/Library/Logs/whatsapp-forwarder.crash.log</string>
 	<key>StandardErrorPath</key>
-	<string>/Users/vojto/Library/Logs/whatsapp-forwarder.crash.log</string>
+	<string>__HOME__/Library/Logs/whatsapp-forwarder.crash.log</string>
 </dict>
 </plist>

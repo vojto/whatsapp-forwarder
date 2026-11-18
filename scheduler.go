@@ -49,7 +49,7 @@ var retryBackoffs = []time.Duration{30 * time.Second, 2 * time.Minute, 10 * time
 // Clock returns the current time; injected so tests can move time.
 type Clock func() time.Time
 
-// SMSSender sends one SMS to the configured recipient (Vojto's Nokia) and returns the Twilio SID.
+// SMSSender sends one SMS to the configured recipient (e.g. a dumb phone) and returns the Twilio SID.
 // senderID is an alphanumeric sender ID, or "" to send from the Twilio number.
 // Errors wrapping ErrTemporarySendFailure (network, 5xx, 429) are retried with backoff;
 // any other error is final.

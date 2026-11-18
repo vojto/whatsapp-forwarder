@@ -17,7 +17,7 @@ import (
 )
 
 var (
-	vojtoPhone   = types.NewJID("421900000000", types.DefaultUserServer)
+	ownPhone     = types.NewJID("421900000000", types.DefaultUserServer)
 	klaudiaLID   = types.NewJID("123456789", types.HiddenUserServer)
 	klaudiaPhone = types.NewJID("421911111111", types.DefaultUserServer)
 	strangerLID  = types.NewJID("999999999", types.HiddenUserServer)
@@ -140,7 +140,7 @@ func textMessage(messageID string, chat types.JID, sender types.JID, text string
 }
 
 func messageFromMe(messageID string, chat types.JID, timestamp time.Time) *events.Message {
-	message := textMessage(messageID, chat, vojtoPhone, "ok")
+	message := textMessage(messageID, chat, ownPhone, "ok")
 	message.Info.IsFromMe = true
 	message.Info.Timestamp = timestamp
 	return message
