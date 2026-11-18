@@ -1,24 +1,19 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
-	"io"
-	"log"
 	"net/http"
 	"net/http/httptest"
 	"path"
 	"strings"
 	"sync"
 	"testing"
-	"time"
 )
 
 const testAccountSID = "AC123"
 const testAuthToken = "secret-token-xyz"
-const testFromNumber = "+15550001111"
 const testRecipientNumber = "+421900000000"
 
 type recordedTwilioRequest struct {
@@ -90,7 +85,6 @@ func newTestTwilioSender(apiBaseURL string) *TwilioSender {
 	sender := NewTwilioSender(Config{
 		TwilioAccountSID:   testAccountSID,
 		TwilioAuthToken:    testAuthToken,
-		TwilioFromNumber:   testFromNumber,
 		SMSRecipientNumber: testRecipientNumber,
 	})
 	sender.apiBaseURL = apiBaseURL
@@ -174,52 +168,39 @@ func TestTwilioSendRejectedNameFallsBackToFixedSenderID(t *testing.T) {
 	assertFromSequence(t, fake.requests(), "Mom", fallbackSenderID)
 }
 
-func TestTwilioSendBothSenderIDsRejectedFallsBackToNumber(t *testing.T) {
+func TestTwilioSendBothSenderIDsRejectedIsPermanent(t *testing.T) {
 	fake := newFakeTwilio(t, map[string]twilioReply{
 		"Mom":            errorReply(http.StatusBadRequest, 21612, "The 'From' is not valid"),
-		fallbackSenderID: errorReply(http.StatusBadRequest, 21612, "The 'From' is not valid"),
-		testFromNumber:   successReply("SM3"),
+		fallbackSenderID: errorReply(http.StatusBadRequest, 21211, "Invalid 'To' Phone Number"),
 	})
 
-	sid, err := newTestTwilioSender(fake.server.URL).Send(context.Background(), "Mom", "hello")
-	if err != nil || sid != "SM3" {
-		t.Fatalf("Send = %q, %v", sid, err)
+	_, err := newTestTwilioSender(fake.server.URL).Send(context.Background(), "Mom", "hello")
+	if err == nil || errors.Is(err, ErrTemporarySendFailure) {
+		t.Fatalf("err = %v, want permanent", err)
 	}
-	assertFromSequence(t, fake.requests(), "Mom", fallbackSenderID, testFromNumber)
+	if !strings.Contains(err.Error(), "21211") || !strings.Contains(err.Error(), "Invalid 'To' Phone Number") {
+		t.Errorf("err = %v, want Twilio code and message", err)
+	}
+	assertNoAuthToken(t, err)
+	assertFromSequence(t, fake.requests(), "Mom", fallbackSenderID)
 }
 
-// 21212 means the account can't use alphanumeric sender IDs at all: skip them for an hour, log once.
-func TestTwilioSendInvalidFromNumberDisablesSenderIDsForCooldown(t *testing.T) {
+// 21212 means the account can't use sender IDs at all: "WA" would fail too, so it isn't tried, and
+// the error is temporary so the scheduler retries instead of dropping the message.
+func TestTwilioSendSenderIDsDisabledIsTemporary(t *testing.T) {
 	fake := newFakeTwilio(t, map[string]twilioReply{
-		"Mom":            errorReply(http.StatusBadRequest, 21212, "Invalid From Number (caller ID): Mom"),
-		"Dad":            errorReply(http.StatusBadRequest, 21212, "Invalid From Number (caller ID): Dad"),
-		fallbackSenderID: errorReply(http.StatusBadRequest, 21212, "Invalid From Number (caller ID): WA"),
-		testFromNumber:   successReply("SM4"),
+		"Mom": errorReply(http.StatusBadRequest, 21212, "Invalid From Number (caller ID): Mom"),
 	})
-	var output bytes.Buffer
-	log.SetOutput(&output)
-	t.Cleanup(func() { log.SetOutput(io.Discard) })
-	clock := &fakeClock{now: startTime}
-	sender := newTestTwilioSender(fake.server.URL)
-	sender.now = clock.Now
 
-	for _, senderID := range []string{"Mom", "Dad", ""} {
-		if sid, err := sender.Send(context.Background(), senderID, "hello"); err != nil || sid != "SM4" {
-			t.Fatalf("Send(%q) = %q, %v", senderID, sid, err)
-		}
-		clock.advance(10 * time.Minute)
+	_, err := newTestTwilioSender(fake.server.URL).Send(context.Background(), "Mom", "hello")
+	if !errors.Is(err, ErrTemporarySendFailure) {
+		t.Fatalf("err = %v, want temporary", err)
 	}
-	assertFromSequence(t, fake.requests(), "Mom", testFromNumber, testFromNumber, testFromNumber)
-	if count := strings.Count(output.String(), "disabled"); count != 1 {
-		t.Errorf("logged the rejection %d times, want once:\n%s", count, output.String())
+	if !strings.Contains(err.Error(), "21212") {
+		t.Errorf("err = %v, want Twilio code", err)
 	}
-
-	clock.advance(senderIDCooldown)
-	if _, err := sender.Send(context.Background(), "Dad", "hello"); err != nil {
-		t.Fatal(err)
-	}
-	requests := fake.requests()
-	assertFromSequence(t, requests[4:], "Dad", testFromNumber)
+	assertNoAuthToken(t, err)
+	assertFromSequence(t, fake.requests(), "Mom")
 }
 
 func TestTwilioDeliveryStatus(t *testing.T) {
@@ -248,11 +229,11 @@ func TestTwilioDeliveryStatus(t *testing.T) {
 	}
 }
 
-// The account rejects alphanumeric sender IDs: a forward still succeeds on its first attempt.
+// A rejected name falls back to "WA" within the same attempt.
 func TestRejectedSenderIDIsNotAFailedForwardAttempt(t *testing.T) {
 	fake := newFakeTwilio(t, map[string]twilioReply{
-		"Klaudia":      errorReply(http.StatusBadRequest, 21212, "Invalid From Number (caller ID): Klaudia"),
-		testFromNumber: successReply("SM5"),
+		"Klaudia":        errorReply(http.StatusBadRequest, 21612, "The 'From' is not valid for this destination"),
+		fallbackSenderID: successReply("SM5"),
 	})
 	harness := newHarness(t)
 	twilio := newTestTwilioSender(fake.server.URL)
@@ -266,13 +247,43 @@ func TestRejectedSenderIDIsNotAFailedForwardAttempt(t *testing.T) {
 	if message.Attempts != 1 || message.TwilioSID != "SM5" || message.Reason != "" {
 		t.Errorf("after fallback: attempts %d, sid %q, reason %q", message.Attempts, message.TwilioSID, message.Reason)
 	}
-	assertFromSequence(t, fake.requests(), "Klaudia", testFromNumber)
+	assertFromSequence(t, fake.requests(), "Klaudia", fallbackSenderID)
+}
+
+// Sender IDs disabled on the account: the forward is retried with backoff, and goes out once the
+// account is fixed.
+func TestSenderIDsDisabledIsRetriedUntilFixed(t *testing.T) {
+	fake := newFakeTwilio(t, map[string]twilioReply{
+		"Klaudia": errorReply(http.StatusBadRequest, 21212, "Invalid From Number (caller ID): Klaudia"),
+	})
+	harness := newHarness(t)
+	twilio := newTestTwilioSender(fake.server.URL)
+	harness.scheduler = NewScheduler(harness.queue, harness.chats, twilio, twilio, harness.clock.Now)
+	harness.scheduler.Resume()
+
+	harness.add("M1", directChat, startTime)
+	harness.advance(forwardDelay)
+	message := harness.expectStatus("M1", StatusPending)
+	if message.Attempts != 1 || !strings.Contains(message.Reason, "21212") {
+		t.Errorf("after first attempt: attempts %d, reason %q", message.Attempts, message.Reason)
+	}
+
+	fake.mutex.Lock()
+	fake.repliesByFrom["Klaudia"] = successReply("SM6")
+	fake.mutex.Unlock()
+	harness.advance(retryBackoffs[0])
+
+	message = harness.expectStatus("M1", StatusSent)
+	if message.Attempts != 2 || message.TwilioSID != "SM6" {
+		t.Errorf("after retry: attempts %d, sid %q", message.Attempts, message.TwilioSID)
+	}
+	assertFromSequence(t, fake.requests(), "Klaudia", "Klaudia")
 }
 
 func TestTwilioSendServerErrorFromSenderIDIsTemporaryWithoutFallback(t *testing.T) {
 	fake := newFakeTwilio(t, map[string]twilioReply{
-		"Mom":          errorReply(http.StatusInternalServerError, 20500, "Internal Server Error"),
-		testFromNumber: successReply("SM4"),
+		"Mom":            errorReply(http.StatusInternalServerError, 20500, "Internal Server Error"),
+		fallbackSenderID: successReply("SM4"),
 	})
 
 	_, err := newTestTwilioSender(fake.server.URL).Send(context.Background(), "Mom", "hello")
@@ -285,33 +296,14 @@ func TestTwilioSendServerErrorFromSenderIDIsTemporaryWithoutFallback(t *testing.
 
 func TestTwilioSendTooManyRequestsIsTemporary(t *testing.T) {
 	fake := newFakeTwilio(t, map[string]twilioReply{
-		testFromNumber: errorReply(http.StatusTooManyRequests, 20429, "Too Many Requests"),
+		fallbackSenderID: errorReply(http.StatusTooManyRequests, 20429, "Too Many Requests"),
 	})
 
-	sender := newTestTwilioSender(fake.server.URL)
-	sender.senderIDsDisabledUntil = time.Now().Add(time.Hour)
-	_, err := sender.Send(context.Background(), "Mom", "hello")
+	_, err := newTestTwilioSender(fake.server.URL).Send(context.Background(), "", "hello")
 	if !errors.Is(err, ErrTemporarySendFailure) {
 		t.Fatalf("err = %v, want temporary", err)
 	}
-	assertFromSequence(t, fake.requests(), testFromNumber)
-}
-
-func TestTwilioSendRejectedFromNumberIsPermanent(t *testing.T) {
-	fake := newFakeTwilio(t, map[string]twilioReply{
-		"Mom":          errorReply(http.StatusBadRequest, 21212, "Invalid From Number"),
-		testFromNumber: errorReply(http.StatusBadRequest, 21211, "Invalid 'To' Phone Number"),
-	})
-
-	_, err := newTestTwilioSender(fake.server.URL).Send(context.Background(), "Mom", "hello")
-	if err == nil || errors.Is(err, ErrTemporarySendFailure) {
-		t.Fatalf("err = %v, want permanent", err)
-	}
-	if !strings.Contains(err.Error(), "21211") || !strings.Contains(err.Error(), "Invalid 'To' Phone Number") {
-		t.Errorf("err = %v, want Twilio code and message", err)
-	}
-	assertNoAuthToken(t, err)
-	assertFromSequence(t, fake.requests(), "Mom", testFromNumber)
+	assertFromSequence(t, fake.requests(), fallbackSenderID)
 }
 
 func TestTwilioSendNetworkErrorIsTemporary(t *testing.T) {

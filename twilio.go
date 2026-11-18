@@ -2,21 +2,22 @@ package main
 
 // Expected behavior:
 //   - Send texts the body to the configured recipient (e.g. a dumb phone) through Twilio's Messages
-//     API and returns the message SID. It tries the senders in order: the contact's name as an
-//     alphanumeric sender ID, then the fixed sender ID "WA", then the Twilio number. All of that
-//     happens within one Send call, so falling back never counts as a failed forward attempt.
-//   - Twilio error 21212 on an alphanumeric sender means the account can't use sender IDs at all:
-//     they're skipped for senderIDCooldown (logged once), and every send goes straight from the
-//     number. After the cooldown one send probes again, so enabling sender IDs needs no restart.
-//   - Network errors, 5xx and 429 wrap ErrTemporarySendFailure so the scheduler retries later;
-//     any other 4xx from the number is a permanent error.
+//     API and returns the message SID. There is no Twilio number: the SMS always comes from an
+//     alphanumeric sender ID, first the contact's name, then the fixed sender ID "WA". Falling back
+//     happens within one Send call, so it never counts as a failed forward attempt.
+//   - Twilio error 21212 means the account can't use sender IDs at all right now (an account or
+//     compliance problem, not this message's fault). It's account-wide, so "WA" isn't tried; the
+//     error wraps ErrTemporarySendFailure and the scheduler retries with its normal backoff, so a
+//     problem fixed within a few minutes doesn't lose the message.
+//   - Network errors, 5xx and 429 are temporary as well. Any other 4xx on "WA" is permanent.
 //   - DeliveryStatus reads a sent message's delivery status back (there is no public URL for a
 //     StatusCallback, so the scheduler polls).
 //
 // Gotchas:
-//   - Every rejected request costs money ($0.001), which is why a 21212 is cached instead of
-//     being rediscovered before every SMS.
-//   - Other 4xx on a sender ID (e.g. a name Twilio won't accept) only skip that one sender ID.
+//   - There's deliberately no cooldown after a 21212: with nothing else to send from, skipping
+//     Twilio would only fail messages without trying. A rejected request costs $0.001, so a
+//     message that exhausts its retries costs at most a few tenths of a cent.
+//   - Other 4xx on the contact's name (e.g. a name Twilio won't accept) only skip that sender ID.
 //   - A temporary failure on a sender ID must not fall back: the scheduler's retry tries the same
 //     chain again, and falling back would otherwise hide outages.
 //   - Errors must never include the auth token; it only travels in the basic auth header.
@@ -31,27 +32,20 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"sync"
 	"time"
 )
 
 const twilioAPIBaseURL = "https://api.twilio.com"
 const twilioRequestTimeout = 20 * time.Second
 const fallbackSenderID = "WA"
-const senderIDCooldown = time.Hour
 const twilioInvalidFromNumberCode = 21212
 
 type TwilioSender struct {
 	accountSID      string
 	authToken       string
-	fromNumber      string
 	recipientNumber string
 	apiBaseURL      string
 	httpClient      *http.Client
-	now             Clock
-
-	mutex                  sync.Mutex
-	senderIDsDisabledUntil time.Time
 }
 
 // twilioRejection is a non-temporary 4xx response: the request itself was refused.
@@ -87,31 +81,28 @@ func NewTwilioSender(config Config) *TwilioSender {
 	return &TwilioSender{
 		accountSID:      config.TwilioAccountSID,
 		authToken:       config.TwilioAuthToken,
-		fromNumber:      config.TwilioFromNumber,
 		recipientNumber: config.SMSRecipientNumber,
 		apiBaseURL:      twilioAPIBaseURL,
 		httpClient:      &http.Client{Timeout: twilioRequestTimeout},
-		now:             time.Now,
 	}
 }
 
-// Send texts the body to the recipient from the first sender Twilio accepts: senderID, "WA",
-// then the Twilio number.
+// Send texts the body to the recipient from the first sender ID Twilio accepts: senderID, then "WA".
 func (sender *TwilioSender) Send(ctx context.Context, senderID string, body string) (string, error) {
-	for _, alphanumericSender := range sender.alphanumericSenders(senderID) {
-		message, err := sender.postMessage(ctx, alphanumericSender, body)
+	var err error
+	for _, alphanumericSender := range alphanumericSenders(senderID) {
+		var message twilioMessageResponse
+		message, err = sender.postMessage(ctx, alphanumericSender, body)
 		var rejection *twilioRejection
 		if !errors.As(err, &rejection) {
 			return message.SID, err
 		}
 		if rejection.code == twilioInvalidFromNumberCode {
-			sender.disableSenderIDs(err)
-			break
+			return "", fmt.Errorf("%w: alphanumeric sender IDs disabled on the Twilio account: %v", ErrTemporarySendFailure, err)
 		}
-		log.Printf("sender ID %q rejected, trying the next sender: %v", alphanumericSender, err)
+		log.Printf("sender ID %q rejected: %v", alphanumericSender, err)
 	}
-	message, err := sender.postMessage(ctx, sender.fromNumber, body)
-	return message.SID, err
+	return "", err
 }
 
 // DeliveryStatus returns Twilio's current delivery status for a sent message.
@@ -134,24 +125,11 @@ func (sender *TwilioSender) DeliveryStatus(ctx context.Context, twilioSID string
 // Sender IDs
 // ---------------------------------------------------------------------------
 
-func (sender *TwilioSender) alphanumericSenders(senderID string) []string {
-	sender.mutex.Lock()
-	defer sender.mutex.Unlock()
-	if sender.now().Before(sender.senderIDsDisabledUntil) {
-		return nil
-	}
+func alphanumericSenders(senderID string) []string {
 	if senderID == "" || senderID == fallbackSenderID {
 		return []string{fallbackSenderID}
 	}
 	return []string{senderID, fallbackSenderID}
-}
-
-func (sender *TwilioSender) disableSenderIDs(cause error) {
-	sender.mutex.Lock()
-	defer sender.mutex.Unlock()
-	sender.senderIDsDisabledUntil = sender.now().Add(senderIDCooldown)
-	log.Printf("alphanumeric sender IDs disabled on the Twilio account, sending from the number for %s: %v",
-		senderIDCooldown, cause)
 }
 
 // Twilio API

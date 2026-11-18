@@ -11,7 +11,6 @@ type Config struct {
 	WhatsAppPhoneNumber string
 	TwilioAccountSID    string
 	TwilioAuthToken     string
-	TwilioFromNumber    string
 	SMSRecipientNumber  string
 }
 
@@ -23,7 +22,6 @@ func loadConfig() Config {
 		WhatsAppPhoneNumber: requireEnv("WHATSAPP_PHONE_NUMBER"),
 		TwilioAccountSID:    requireEnv("TWILIO_ACCOUNT_SID"),
 		TwilioAuthToken:     requireEnv("TWILIO_AUTH_TOKEN"),
-		TwilioFromNumber:    requireEnv("TWILIO_FROM_NUMBER"),
 		SMSRecipientNumber:  requireEnv("SMS_RECIPIENT_NUMBER"),
 	}
 }
