@@ -17,11 +17,11 @@ import (
 )
 
 var (
-	ownPhone     = types.NewJID("421900000000", types.DefaultUserServer)
-	klaudiaLID   = types.NewJID("123456789", types.HiddenUserServer)
-	klaudiaPhone = types.NewJID("421911111111", types.DefaultUserServer)
-	strangerLID  = types.NewJID("999999999", types.HiddenUserServer)
-	familyGroup  = types.NewJID("120363000000000000", types.GroupServer)
+	ownPhone    = types.NewJID("421900000000", types.DefaultUserServer)
+	lenkaLID    = types.NewJID("123456789", types.HiddenUserServer)
+	lenkaPhone  = types.NewJID("421911111111", types.DefaultUserServer)
+	strangerLID = types.NewJID("999999999", types.HiddenUserServer)
+	familyGroup = types.NewJID("120363000000000000", types.GroupServer)
 )
 
 // Fakes
@@ -93,8 +93,8 @@ func newTestHarness(t *testing.T) *testHarness {
 	}
 	t.Cleanup(func() { queue.Close() })
 	identities := fakeIdentities{
-		phonesByLID:   map[types.JID]types.JID{klaudiaLID: klaudiaPhone},
-		contactsByJID: map[types.JID]types.ContactInfo{klaudiaPhone: {Found: true, FullName: "Klaudia Komárová"}},
+		phonesByLID:   map[types.JID]types.JID{lenkaLID: lenkaPhone},
+		contactsByJID: map[types.JID]types.ContactInfo{lenkaPhone: {Found: true, FullName: "Lenka Horváthová"}},
 	}
 	harness := &testHarness{socket: &fakeSocket{}, queue: queue, scheduler: &fakeScheduler{}, sms: &fakeSMS{}, clock: &fakeClock{now: startTime}}
 	harness.whatsApp = newWhatsApp(identities, harness.socket, queue, harness.scheduler, harness.sms, harness.clock.Now,
@@ -151,7 +151,7 @@ func messageFromMe(messageID string, chat types.JID, timestamp time.Time) *event
 
 func TestIncomingPersonMessageIsQueuedWithNormalizedChatAndIdentity(t *testing.T) {
 	harness := newTestHarness(t)
-	harness.handle(t, textMessage("M1", klaudiaLID, klaudiaLID, "ahoj"))
+	harness.handle(t, textMessage("M1", lenkaLID, lenkaLID, "ahoj"))
 
 	message, isFound, err := harness.queue.Get("M1")
 	if err != nil || !isFound {
@@ -159,8 +159,8 @@ func TestIncomingPersonMessageIsQueuedWithNormalizedChatAndIdentity(t *testing.T
 	}
 	expected := Message{
 		MessageID:   "M1",
-		ChatJID:     klaudiaPhone.String(),
-		SenderName:  "Klaudia Komárová",
+		ChatJID:     lenkaPhone.String(),
+		SenderName:  "Lenka Horváthová",
 		SenderPhone: "+421911111111",
 		Text:        "ahoj",
 		Status:      StatusPending,
@@ -205,8 +205,8 @@ func TestSenderAltProvidesPhone(t *testing.T) {
 
 func TestRedeliveredMessageIsIgnored(t *testing.T) {
 	harness := newTestHarness(t)
-	harness.handle(t, textMessage("M1", klaudiaLID, klaudiaLID, "first"))
-	harness.handle(t, textMessage("M1", klaudiaLID, klaudiaLID, "second"))
+	harness.handle(t, textMessage("M1", lenkaLID, lenkaLID, "first"))
+	harness.handle(t, textMessage("M1", lenkaLID, lenkaLID, "second"))
 
 	message, _, _ := harness.queue.Get("M1")
 	if message.Text != "first" {
@@ -216,17 +216,17 @@ func TestRedeliveredMessageIsIgnored(t *testing.T) {
 
 func TestGroupMessageIsQueuedUnderGroupJID(t *testing.T) {
 	harness := newTestHarness(t)
-	harness.handle(t, textMessage("M1", familyGroup, klaudiaLID, "dinner?"))
+	harness.handle(t, textMessage("M1", familyGroup, lenkaLID, "dinner?"))
 
 	message, _, _ := harness.queue.Get("M1")
-	if message.ChatJID != familyGroup.String() || message.SenderName != "Klaudia Komárová" {
+	if message.ChatJID != familyGroup.String() || message.SenderName != "Lenka Horváthová" {
 		t.Fatalf("queued %+v", message)
 	}
 }
 
 func TestMediaMessageUsesLabelAndCaption(t *testing.T) {
 	harness := newTestHarness(t)
-	event := textMessage("M1", klaudiaLID, klaudiaLID, "")
+	event := textMessage("M1", lenkaLID, lenkaLID, "")
 	event.Message = &waE2E.Message{ImageMessage: &waE2E.ImageMessage{Caption: proto.String("look")}}
 	harness.handle(t, event)
 
@@ -238,9 +238,9 @@ func TestMediaMessageUsesLabelAndCaption(t *testing.T) {
 
 func TestMessagesWithoutContentAreIgnored(t *testing.T) {
 	harness := newTestHarness(t)
-	reaction := textMessage("M1", klaudiaLID, klaudiaLID, "")
+	reaction := textMessage("M1", lenkaLID, lenkaLID, "")
 	reaction.Message = &waE2E.Message{ReactionMessage: &waE2E.ReactionMessage{Text: proto.String("👍")}}
-	protocol := textMessage("M2", klaudiaLID, klaudiaLID, "")
+	protocol := textMessage("M2", lenkaLID, lenkaLID, "")
 	protocol.Message = &waE2E.Message{ProtocolMessage: &waE2E.ProtocolMessage{}}
 	harness.handle(t, reaction)
 	harness.handle(t, protocol)
@@ -254,8 +254,8 @@ func TestMessagesWithoutContentAreIgnored(t *testing.T) {
 
 func TestNewsletterAndBroadcastChatsAreIgnored(t *testing.T) {
 	harness := newTestHarness(t)
-	harness.handle(t, textMessage("M1", types.NewJID("1203630000", types.NewsletterServer), klaudiaLID, "news"))
-	harness.handle(t, textMessage("M2", types.StatusBroadcastJID, klaudiaLID, "story"))
+	harness.handle(t, textMessage("M1", types.NewJID("1203630000", types.NewsletterServer), lenkaLID, "news"))
+	harness.handle(t, textMessage("M2", types.StatusBroadcastJID, lenkaLID, "story"))
 
 	for _, messageID := range []string{"M1", "M2"} {
 		if status := harness.status(t, messageID); status != "" {
@@ -268,7 +268,7 @@ func TestQueueFailureLeavesEventUnacked(t *testing.T) {
 	harness := newTestHarness(t)
 	harness.queue.Close()
 
-	if harness.whatsApp.HandleEvent(textMessage("M1", klaudiaLID, klaudiaLID, "ahoj")) {
+	if harness.whatsApp.HandleEvent(textMessage("M1", lenkaLID, lenkaLID, "ahoj")) {
 		t.Fatal("HandleEvent returned true for a failed queue write")
 	}
 	if harness.whatsApp.HandleEvent(&events.Receipt{Type: types.ReceiptTypeReadSelf, MessageIDs: []string{"M1"}}) {
@@ -281,20 +281,23 @@ func TestQueueFailureLeavesEventUnacked(t *testing.T) {
 
 func TestMessageFromMeInLIDChatMarksPhoneChatReplied(t *testing.T) {
 	harness := newTestHarness(t)
-	harness.handle(t, textMessage("M1", klaudiaPhone, klaudiaLID, "ahoj"))
-	harness.handle(t, messageFromMe("R1", klaudiaLID, startTime.Add(time.Minute)))
+	harness.handle(t, textMessage("M1", lenkaPhone, lenkaLID, "ahoj"))
+	harness.handle(t, messageFromMe("R1", lenkaLID, startTime.Add(time.Minute)))
 
 	if status := harness.status(t, "M1"); status != StatusReplied {
 		t.Fatalf("status = %s, want replied", status)
 	}
-	if status := harness.status(t, "R1"); status != "" {
-		t.Fatalf("own message queued with status %s", status)
+	if status := harness.status(t, "R1"); status != StatusMine {
+		t.Fatalf("own message status = %q, want mine", status)
+	}
+	if mine, _, _ := harness.queue.Get("R1"); mine.ChatJID != lenkaPhone.String() || mine.Text != "ok" {
+		t.Fatalf("own message stored as %+v", mine)
 	}
 }
 
 func TestReadSelfReceiptMarksRead(t *testing.T) {
 	harness := newTestHarness(t)
-	harness.handle(t, textMessage("M1", klaudiaLID, klaudiaLID, "ahoj"))
+	harness.handle(t, textMessage("M1", lenkaLID, lenkaLID, "ahoj"))
 	harness.handle(t, &events.Receipt{Type: types.ReceiptTypeRead, MessageIDs: []string{"M1"}})
 	if status := harness.status(t, "M1"); status != StatusPending {
 		t.Fatalf("status after other receipt = %s, want pending", status)
@@ -309,7 +312,7 @@ func TestReadSelfReceiptMarksRead(t *testing.T) {
 func TestReceiptBeforeMessageLeavesItRead(t *testing.T) {
 	harness := newTestHarness(t)
 	harness.handle(t, &events.Receipt{Type: types.ReceiptTypeReadSelf, MessageIDs: []string{"M1"}})
-	harness.handle(t, textMessage("M1", klaudiaLID, klaudiaLID, "ahoj"))
+	harness.handle(t, textMessage("M1", lenkaLID, lenkaLID, "ahoj"))
 
 	if status := harness.status(t, "M1"); status != StatusRead {
 		t.Fatalf("status = %s, want read", status)

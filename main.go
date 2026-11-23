@@ -4,7 +4,8 @@
 // Expected behavior:
 //   - Runs as a linked WhatsApp device (whatsmeow) under launchd. whatsapp.go turns WhatsApp events
 //     into rows in forwarder.db (queue.go); scheduler.go forwards rows that are still pending when
-//     they become due, through Twilio (twilio.go), within the rules in rules.go, then polls Twilio
+//     they become due, through Twilio (twilio.go), within the rules in rules.go and only when the
+//     forward judge (judge.go) thinks they're worth it, then polls Twilio
 //     until each SMS is delivered or known to have failed.
 //   - First run prints a pairing code to the log; enter it in WhatsApp > Linked devices >
 //     Link a device > Link with phone number instead. The session is then kept in store.db.
@@ -54,7 +55,7 @@ func main() {
 	client := newClient(ctx)
 
 	sms := NewTwilioSender(config)
-	scheduler := NewScheduler(queue, newWhatsmeowChats(client), sms, sms, time.Now)
+	scheduler := NewScheduler(queue, newWhatsmeowChats(client), sms, sms, newForwardJudge(config), time.Now)
 	whatsApp := NewWhatsApp(client, queue, scheduler, sms, time.Now, func() {
 		log.Fatal("logged out of WhatsApp; restarting into pairing")
 	})
@@ -94,6 +95,15 @@ func openLog() *rotatingLog {
 	}
 	log.SetOutput(logFile)
 	return logFile
+}
+
+// newForwardJudge returns Jev when TYPESAFE_API_KEY is set, otherwise nil (forward everything).
+func newForwardJudge(config Config) ForwardJudge {
+	if config.TypeSafeAPIKey == "" {
+		log.Print("no TYPESAFE_API_KEY, forwarding every message")
+		return nil
+	}
+	return newJevJudge(config.TypeSafeAPIKey)
 }
 
 func openQueue() *Queue {

@@ -11,7 +11,7 @@ func TestSingleSegmentSMS(t *testing.T) {
 		input    string
 		expected string
 	}{
-		{"strips diacritics", "Klaudia Komárová: Taký som kúsok smutný, čo?", "Klaudia Komarova: Taky som kusok smutny, co?"},
+		{"strips diacritics", "Lenka Horváthová: Taký som kúsok smutný, čo?", "Lenka Horvathova: Taky som kusok smutny, co?"},
 		{"drops emoji", "Jo idem 💃🏼", "Jo idem"},
 		{"converts punctuation", "“Hej” – it’s…", `"Hej" - it's...`},
 		{"drops non-latin", "Ahoj Привет", "Ahoj"},
@@ -40,7 +40,7 @@ func TestSingleSegmentSMSCutsToOneSegment(t *testing.T) {
 func TestSenderID(t *testing.T) {
 	cases := map[string]string{
 		"Jakub 🐼":               "Jakub",
-		"Klaudia Komárová":      "Klaudia",
+		"Lenka Horváthová":      "Lenka",
 		"Ján Novák":             "Jan Novak",
 		"Maximilianoslav Bondy": "Maximiliano",
 		"🐼🐼":                    "",

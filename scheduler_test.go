@@ -32,7 +32,7 @@ func TestForwardsUnreadMessageOnceAfterDelay(t *testing.T) {
 	harness.advance(time.Second)
 	harness.advance(time.Hour)
 	harness.expectSendCount(1)
-	harness.expectSent(0, "Klaudia", "+421900111222: Ahoj, kedy prides?")
+	harness.expectSent(0, "Lenka", "+421900111222: Ahoj, kedy prides?")
 	message := harness.expectStatus("m1", StatusSent)
 	if message.TwilioSID != "SM1" {
 		t.Fatalf("twilio SID = %q, want SM1", message.TwilioSID)
@@ -253,7 +253,7 @@ func TestChatRules(t *testing.T) {
 	}
 	harness.expectStatus("small group", StatusSent)
 	harness.expectSendCount(1)
-	harness.expectSent(0, "Klaudia", "+421900111222 @ Rodina: Ahoj, kedy prides?")
+	harness.expectSent(0, "Lenka", "+421900111222 @ Rodina: Ahoj, kedy prides?")
 }
 
 func TestChatLookupErrorIsRetried(t *testing.T) {
@@ -299,6 +299,153 @@ func TestPruneDeletesOnlyOldFinishedRows(t *testing.T) {
 	harness.expectStatus("old pending", StatusStale)
 	harness.advance(time.Second)
 	harness.expectMissing("old pending")
+}
+
+// Bursts and the forward judge
+// ---------------------------------------------------------------------------
+
+func TestBurstIsForwardedAsOneSMS(t *testing.T) {
+	harness := newResumedHarness(t)
+	harness.addText("m1", directChat, startTime, "Ahoj")
+	harness.addText("m2", directChat, startTime.Add(time.Minute), "Kedy prídeš?")
+	harness.advance(forwardDelay)
+	harness.expectSendCount(0)
+	harness.advance(time.Minute)
+
+	harness.expectSendCount(1)
+	harness.expectSent(0, "Lenka", "+421900111222: Ahoj / Kedy prides?")
+	harness.expectStatus("m1", StatusSent)
+	harness.expectStatus("m2", StatusSent)
+	if len(harness.judge.states) != 1 {
+		t.Fatalf("judge asked %d times, want once per burst", len(harness.judge.states))
+	}
+}
+
+func TestNewMessageDelaysBurstUntilChatIsQuiet(t *testing.T) {
+	harness := newResumedHarness(t)
+	harness.add("m1", directChat, startTime)
+	harness.add("m2", directChat, startTime.Add(2*time.Minute+50*time.Second))
+	harness.add("other", otherDirectChat, startTime.Add(time.Minute))
+	harness.advance(forwardDelay + time.Minute)
+	harness.expectStatus("m1", StatusPending)
+	harness.expectStatus("other", StatusSent)
+
+	harness.advance(time.Minute + 50*time.Second)
+	harness.expectStatus("m1", StatusSent)
+	harness.expectStatus("m2", StatusSent)
+	harness.expectSendCount(2)
+}
+
+func TestChattyBurstIsSentAfterMaxWait(t *testing.T) {
+	harness := newResumedHarness(t)
+	for minute := 0; minute < 15; minute++ {
+		harness.add(fmt.Sprintf("m%d", minute), directChat, startTime.Add(time.Duration(minute)*time.Minute))
+		if minute < 14 {
+			harness.advance(time.Minute)
+		}
+	}
+	// m0 is due at the 10-minute cap; everything received by then (m0–m9) goes with it.
+	harness.expectSendCount(1)
+	harness.expectStatus("m0", StatusSent)
+	harness.expectStatus("m9", StatusSent)
+	harness.expectStatus("m10", StatusPending)
+}
+
+func TestBacklogMessageDoesNotDelayMessagesAlreadyDue(t *testing.T) {
+	harness := newHarness(t)
+	harness.add("old", directChat, startTime.Add(-time.Hour))
+	harness.add("newer", directChat, startTime.Add(-time.Minute))
+	harness.scheduler.Resume()
+	harness.advance(0)
+
+	harness.expectStatus("old", StatusSent)
+	harness.expectStatus("newer", StatusSent)
+	harness.expectSendCount(1)
+}
+
+func TestMessageAfterBurstStartsNewBurst(t *testing.T) {
+	harness := newResumedHarness(t)
+	harness.add("m1", directChat, startTime)
+	harness.advance(forwardDelay)
+	harness.add("m2", directChat, harness.clock.now.Add(time.Second))
+	harness.advance(time.Second)
+	harness.expectSendCount(1)
+	harness.expectStatus("m2", StatusPending)
+
+	harness.advance(forwardDelay)
+	harness.expectSendCount(2)
+	harness.expectStatus("m2", StatusSent)
+}
+
+func TestJudgeSaysNoSkipsBurst(t *testing.T) {
+	harness := newResumedHarness(t)
+	harness.judge.probability = 0.2
+	harness.add("m1", directChat, startTime)
+	harness.add("m2", directChat, startTime.Add(time.Second))
+	harness.advance(forwardDelay + time.Second)
+
+	harness.expectSendCount(0)
+	for _, messageID := range []string{"m1", "m2"} {
+		if message := harness.expectStatus(messageID, StatusSkipped); message.Reason != "not important (0.20)" {
+			t.Fatalf("reason = %q", message.Reason)
+		}
+	}
+}
+
+func TestJudgeErrorForwardsAnyway(t *testing.T) {
+	harness := newResumedHarness(t)
+	harness.judge.err = errors.New("jev 500")
+	harness.add("m1", directChat, startTime)
+	harness.advance(forwardDelay)
+
+	harness.expectSendCount(1)
+	harness.expectStatus("m1", StatusSent)
+}
+
+func TestNoJudgeForwardsEverything(t *testing.T) {
+	harness := newResumedHarness(t)
+	harness.scheduler.judge = nil
+	harness.add("m1", directChat, startTime)
+	harness.advance(forwardDelay)
+
+	harness.expectSendCount(1)
+}
+
+func TestChatRulesSkipBeforeAskingJudge(t *testing.T) {
+	harness := newResumedHarness(t)
+	harness.add("m1", largeGroupChat, startTime)
+	harness.advance(forwardDelay)
+
+	harness.expectStatus("m1", StatusSkipped)
+	if len(harness.judge.states) != 0 {
+		t.Fatalf("judge was asked about a skipped chat")
+	}
+}
+
+func TestJudgeSeesChatHistory(t *testing.T) {
+	harness := newResumedHarness(t)
+	harness.addText("earlier", directChat, startTime, "Ideme na obed?")
+	harness.advance(forwardDelay)
+	mine := Message{MessageID: "mine", ChatJID: directChat, SenderName: "me", Text: "Neviem", ReceivedAt: startTime.Add(10 * time.Minute)}
+	if _, err := harness.queue.AddMine(mine, harness.clock.now); err != nil {
+		t.Fatal(err)
+	}
+	harness.addText("other chat", otherDirectChat, startTime.Add(11*time.Minute), "Nesuvisi")
+	harness.addText("new", directChat, startTime.Add(12*time.Minute), "O 13:00 pri fontane")
+	harness.clock.now = startTime.Add(12*time.Minute + forwardDelay)
+	harness.advance(0)
+
+	state := harness.judge.states[len(harness.judge.states)-1]
+	if len(state.Messages) != 3 {
+		t.Fatalf("state messages = %+v, want the 3 from this chat", state.Messages)
+	}
+	earlier, own, latest := state.Messages[0], state.Messages[1], state.Messages[2]
+	if !earlier.WasSentToDumbPhone || earlier.IsNew || own.From != "me" || !latest.IsNew || latest.Text != "O 13:00 pri fontane" {
+		t.Fatalf("state messages = %+v", state.Messages)
+	}
+	if state.MinutesSinceUserWroteHere == nil || *state.MinutesSinceUserWroteHere != 5 || state.Chat != "direct chat" {
+		t.Fatalf("state = %+v", state)
+	}
 }
 
 // Delivery
@@ -399,23 +546,32 @@ func TestDeliveryCheckErrorIsRetriedLater(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestSMSBody(t *testing.T) {
+	lenka := func(text string) Message {
+		return Message{SenderName: "Lenka H", SenderPhone: "+421900111222", Text: text}
+	}
+	peter := Message{SenderName: "Peter", SenderPhone: "+421900999999", Text: "Ja tiez"}
+	family := ChatInfo{IsGroup: true, GroupName: "Rodina"}
 	tests := []struct {
-		name    string
-		message Message
-		chat    ChatInfo
-		want    string
+		name  string
+		burst []Message
+		chat  ChatInfo
+		want  string
 	}{
-		{"direct", Message{SenderPhone: "+421900111222", Text: "Ahoj"}, ChatInfo{}, "+421900111222: Ahoj"},
-		{"direct without phone", Message{Text: "Ahoj"}, ChatInfo{}, "Ahoj"},
-		{"group", Message{SenderPhone: "+421900111222", Text: "Ahoj"},
-			ChatInfo{IsGroup: true, GroupName: "Rodina"}, "+421900111222 @ Rodina: Ahoj"},
-		{"group without phone", Message{Text: "Ahoj"},
-			ChatInfo{IsGroup: true, GroupName: "Rodina"}, "@ Rodina: Ahoj"},
-		{"converted to GSM", Message{SenderPhone: "+421", Text: "Čau 👋"}, ChatInfo{}, "+421: Cau"},
+		{"direct", []Message{lenka("Ahoj")}, ChatInfo{}, "+421900111222: Ahoj"},
+		{"direct without phone", []Message{{Text: "Ahoj"}}, ChatInfo{}, "Ahoj"},
+		{"group", []Message{lenka("Ahoj")}, family, "+421900111222 @ Rodina: Ahoj"},
+		{"group without phone", []Message{{Text: "Ahoj"}}, family, "@ Rodina: Ahoj"},
+		{"converted to GSM", []Message{{SenderPhone: "+421", Text: "Čau 👋"}}, ChatInfo{}, "+421: Cau"},
+		{"burst", []Message{lenka("Ahoj"), lenka("👋"), lenka("Kedy prides?")}, ChatInfo{},
+			"+421900111222: Ahoj / Kedy prides?"},
+		{"several people in a group", []Message{lenka("Ideme?"), peter}, family,
+			"@ Rodina: Lenka: Ideme? / Peter: Ja tiez"},
+		{"too long drops oldest first", []Message{lenka(strings.Repeat("a", 100)), lenka(strings.Repeat("b", 100)), lenka("Kedy?")},
+			ChatInfo{}, "+421900111222: ... " + strings.Repeat("b", 100) + " / Kedy?"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if got := smsBody(test.message, test.chat); got != test.want {
+			if got := smsBody(test.burst, test.chat); got != test.want {
 				t.Fatalf("smsBody = %q, want %q", got, test.want)
 			}
 		})
@@ -428,8 +584,8 @@ func TestSkipReason(t *testing.T) {
 		want string
 	}{
 		{ChatInfo{}, ""},
-		{ChatInfo{IsGroup: true, GroupSize: 5}, ""},
-		{ChatInfo{IsGroup: true, GroupSize: 6}, "group of 6"},
+		{ChatInfo{IsGroup: true, GroupSize: 10}, ""},
+		{ChatInfo{IsGroup: true, GroupSize: 11}, "group of 11"},
 		{ChatInfo{IsArchived: true}, "archived chat"},
 	}
 	for _, test := range tests {
@@ -449,6 +605,7 @@ type harness struct {
 	clock     *fakeClock
 	sender    *fakeSender
 	chats     *fakeChats
+	judge     *fakeJudge
 	scheduler *Scheduler
 }
 
@@ -460,6 +617,7 @@ func newHarness(t *testing.T) *harness {
 		clock:     &fakeClock{now: startTime},
 		sender:    &fakeSender{},
 		chats:     newFakeChats(),
+		judge:     &fakeJudge{probability: 1},
 	}
 	harness.open()
 	t.Cleanup(func() { harness.queue.Close() })
@@ -483,7 +641,7 @@ func (harness *harness) open() {
 		harness.t.Fatalf("fail interrupted sends: %v", err)
 	}
 	harness.queue = queue
-	harness.scheduler = NewScheduler(queue, harness.chats, harness.sender, harness.sender, harness.clock.Now)
+	harness.scheduler = NewScheduler(queue, harness.chats, harness.sender, harness.sender, harness.judge, harness.clock.Now)
 }
 
 // restart simulates the process dying (without finishing anything) and starting again.
@@ -503,12 +661,17 @@ func (harness *harness) advance(duration time.Duration) {
 
 func (harness *harness) add(messageID string, chatJID string, receivedAt time.Time) {
 	harness.t.Helper()
+	harness.addText(messageID, chatJID, receivedAt, "Ahoj, kedy prídeš?")
+}
+
+func (harness *harness) addText(messageID string, chatJID string, receivedAt time.Time, text string) {
+	harness.t.Helper()
 	message := Message{
 		MessageID:   messageID,
 		ChatJID:     chatJID,
-		SenderName:  "Klaudia Komárová",
+		SenderName:  "Lenka Horváthová",
 		SenderPhone: "+421900111222",
-		Text:        "Ahoj, kedy prídeš?",
+		Text:        text,
 		ReceivedAt:  receivedAt,
 	}
 	if _, err := harness.queue.Add(message, harness.clock.now); err != nil {
@@ -638,6 +801,18 @@ func (sender *fakeSender) Send(ctx context.Context, senderID string, body string
 
 func temporaryError() error {
 	return fmt.Errorf("twilio 503: %w", ErrTemporarySendFailure)
+}
+
+// fakeJudge answers every question with probability (or err) and records the states it saw.
+type fakeJudge struct {
+	probability float64
+	err         error
+	states      []JudgeState
+}
+
+func (judge *fakeJudge) ForwardProbability(ctx context.Context, state JudgeState) (float64, error) {
+	judge.states = append(judge.states, state)
+	return judge.probability, judge.err
 }
 
 type fakeChats struct {

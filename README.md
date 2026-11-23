@@ -1,7 +1,7 @@
 # whatsapp-forwarder
 
 Forwards WhatsApp messages by SMS to a dumb phone when they haven't been seen on your main phone
-within three minutes. Useful when you leave the smartphone at home but still want to know about
+within three minutes, and only when a judgment model thinks you need to see them. Useful when you leave the smartphone at home but still want to know about
 messages that need you.
 
 It runs on a Mac as a linked WhatsApp device ([whatsmeow](https://github.com/tulir/whatsmeow))
@@ -13,13 +13,29 @@ under launchd, and sends SMS through Twilio.
 WhatsApp events ──▶ whatsapp.go ──▶ forwarder.db (queue.go) ◀── scheduler.go ──▶ twilio.go ──▶ SMS
                      received   → pending, due in 3 min           every 5 s: claim due rows,
                      read-self  → read                             check rules.go, send,
-                     own reply  → replied (earlier msgs in chat)   record sent / skipped / failed
+                     own reply  → replied (earlier msgs in chat)   ask judge.go, record
+                                  + stored as history              sent / skipped / failed
 ```
 
 - Every message is a row in `forwarder.db`, so pending forwards survive restarts.
 - **Read on your phone** (`read-self` receipt) or **replied in the chat** → not forwarded.
-- **Skipped**: groups with more than 5 members, archived chats.
-- **SMS format**: the body is `+421…: text`, or `+421… @ Group: text` for groups. It is always one
+- **Debounce**: each new message in a chat pushes the chat's unread messages back, so they're
+  forwarded once the chat has been quiet for 3 minutes, but at most 10 minutes after each arrived.
+- **Bursts**: when a chat's oldest unread message is due, every other unread message in that chat
+  goes with it, as one decision and one SMS (`Ahoj / Kedy prides?`).
+- **Evals**: `eval/cases.json` holds real situations, rewritten in English with made-up people, with the right answer.
+  `JEV_EVAL=1 go test -run Eval -v` runs them through Jev with the current question.
+- **Forward judge** (`judge.go`): before sending, TypeSafe's Jev model gets the chat's last 20
+  messages from the past 12 h (your own included, earlier forwards marked) and answers one yes/no
+  question: does the user need to see this on the dumb phone? Plans to meet, questions and urgent
+  news go through; links, memes, small talk, chats you're active in and repeats don't. Skipped
+  bursts get reason `not important (0.23)`. The question is `judge_question.json`; edit it to tune.
+  No `TYPESAFE_API_KEY`, or a failed call, means forward.
+- **History**: your own messages are stored as `mine` rows, so `forwarder.db` is the chat history
+  the judge reads.
+- **Skipped**: groups with more than 10 members, archived chats.
+- **SMS format**: the body is `+421…: text`, or `+421… @ Group: text` for groups (`@ Group: Ann: text /
+  Bob: text` when several people wrote). A burst that doesn't fit drops its oldest messages first. It is always one
   GSM-7 segment: diacritics stripped, emoji dropped, links replaced by `[link]`, cut at 160 characters.
 - **Sender**: the contact's name as an alphanumeric sender ID, falling back to `WA` (no Twilio
   number needed, but your account must allow alphanumeric sender IDs for the recipient's country).
@@ -36,7 +52,8 @@ WhatsApp events ──▶ whatsapp.go ──▶ forwarder.db (queue.go) ◀─�
 
 ## Setup
 
-Requires macOS, Go and a Twilio account with alphanumeric sender IDs enabled.
+Requires macOS, Go and a Twilio account with alphanumeric sender IDs enabled. A TypeSafe API key
+is optional and turns on the forward judge.
 
 ```bash
 cp .env.example .env   # fill in Twilio credentials and the recipient number
@@ -53,7 +70,8 @@ Link a device › *Link with phone number instead*, and enter it. The session is
 
 | Path | What |
 | --- | --- |
-| `.env` | Twilio credentials, numbers (never committed) |
+| `.env` | Twilio credentials, numbers, optional TypeSafe key (never committed) |
+| `judge_question.json` | the forward judge's question and rules, embedded at build time |
 | `store.db` | whatsmeow's paired session (never committed, don't delete unless re-pairing) |
 | `forwarder.db` | the message queue (never committed, rows pruned after 30 days) |
 | `~/Library/Logs/whatsapp-forwarder.log` | app log, rotated at 5 MB to `.log.1` |

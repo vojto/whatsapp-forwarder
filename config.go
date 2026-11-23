@@ -12,6 +12,8 @@ type Config struct {
 	TwilioAccountSID    string
 	TwilioAuthToken     string
 	SMSRecipientNumber  string
+	// TypeSafeAPIKey enables the forward judge (Jev). Without it every message is forwarded.
+	TypeSafeAPIKey string
 }
 
 func loadConfig() Config {
@@ -23,6 +25,7 @@ func loadConfig() Config {
 		TwilioAccountSID:    requireEnv("TWILIO_ACCOUNT_SID"),
 		TwilioAuthToken:     requireEnv("TWILIO_AUTH_TOKEN"),
 		SMSRecipientNumber:  requireEnv("SMS_RECIPIENT_NUMBER"),
+		TypeSafeAPIKey:      os.Getenv("TYPESAFE_API_KEY"),
 	}
 }
 

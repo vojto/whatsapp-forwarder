@@ -232,12 +232,12 @@ func TestTwilioDeliveryStatus(t *testing.T) {
 // A rejected name falls back to "WA" within the same attempt.
 func TestRejectedSenderIDIsNotAFailedForwardAttempt(t *testing.T) {
 	fake := newFakeTwilio(t, map[string]twilioReply{
-		"Klaudia":        errorReply(http.StatusBadRequest, 21612, "The 'From' is not valid for this destination"),
+		"Lenka":          errorReply(http.StatusBadRequest, 21612, "The 'From' is not valid for this destination"),
 		fallbackSenderID: successReply("SM5"),
 	})
 	harness := newHarness(t)
 	twilio := newTestTwilioSender(fake.server.URL)
-	harness.scheduler = NewScheduler(harness.queue, harness.chats, twilio, twilio, harness.clock.Now)
+	harness.scheduler = NewScheduler(harness.queue, harness.chats, twilio, twilio, nil, harness.clock.Now)
 	harness.scheduler.Resume()
 
 	harness.add("M1", directChat, startTime)
@@ -247,18 +247,18 @@ func TestRejectedSenderIDIsNotAFailedForwardAttempt(t *testing.T) {
 	if message.Attempts != 1 || message.TwilioSID != "SM5" || message.Reason != "" {
 		t.Errorf("after fallback: attempts %d, sid %q, reason %q", message.Attempts, message.TwilioSID, message.Reason)
 	}
-	assertFromSequence(t, fake.requests(), "Klaudia", fallbackSenderID)
+	assertFromSequence(t, fake.requests(), "Lenka", fallbackSenderID)
 }
 
 // Sender IDs disabled on the account: the forward is retried with backoff, and goes out once the
 // account is fixed.
 func TestSenderIDsDisabledIsRetriedUntilFixed(t *testing.T) {
 	fake := newFakeTwilio(t, map[string]twilioReply{
-		"Klaudia": errorReply(http.StatusBadRequest, 21212, "Invalid From Number (caller ID): Klaudia"),
+		"Lenka": errorReply(http.StatusBadRequest, 21212, "Invalid From Number (caller ID): Lenka"),
 	})
 	harness := newHarness(t)
 	twilio := newTestTwilioSender(fake.server.URL)
-	harness.scheduler = NewScheduler(harness.queue, harness.chats, twilio, twilio, harness.clock.Now)
+	harness.scheduler = NewScheduler(harness.queue, harness.chats, twilio, twilio, nil, harness.clock.Now)
 	harness.scheduler.Resume()
 
 	harness.add("M1", directChat, startTime)
@@ -269,7 +269,7 @@ func TestSenderIDsDisabledIsRetriedUntilFixed(t *testing.T) {
 	}
 
 	fake.mutex.Lock()
-	fake.repliesByFrom["Klaudia"] = successReply("SM6")
+	fake.repliesByFrom["Lenka"] = successReply("SM6")
 	fake.mutex.Unlock()
 	harness.advance(retryBackoffs[0])
 
@@ -277,7 +277,7 @@ func TestSenderIDsDisabledIsRetriedUntilFixed(t *testing.T) {
 	if message.Attempts != 2 || message.TwilioSID != "SM6" {
 		t.Errorf("after retry: attempts %d, sid %q", message.Attempts, message.TwilioSID)
 	}
-	assertFromSequence(t, fake.requests(), "Klaudia", "Klaudia")
+	assertFromSequence(t, fake.requests(), "Lenka", "Lenka")
 }
 
 func TestTwilioSendServerErrorFromSenderIDIsTemporaryWithoutFallback(t *testing.T) {

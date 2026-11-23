@@ -1,0 +1,25 @@
+{
+  "type": "noul",
+  "instructions": "The user is out with only a dumb phone that gets WhatsApp messages as SMS. Should the new messages (marked is_new) be sent to that phone? Older messages are only context. Only send what the user needs to see before they are back at their smartphone. Messages from \"me\" are the user's own.",
+  "criteria": {
+    "true": {
+      "rules": [
+        "Someone wants to meet, or is planning, changing or confirming where or when to meet, eat or go somewhere",
+        "An answer to a plan, question, proposal or call from the user, including saying they are busy or unavailable",
+        "It asks the user a question or needs an answer or decision from them soon",
+        "Practical details the user may need while out, like what to buy or bring, an address, a code or a time",
+        "Urgent, time-sensitive or important personal news"
+      ]
+    },
+    "false": {
+      "rules": [
+        "A shared link, video, meme, photo or sticker without a question or plan for the user",
+        "Small talk, reactions, thanks, ok, laughing or emoji",
+        "Gossip or opinions about other people, even when asked as a question",
+        "A favor or task for the user that can wait until they are back at their smartphone",
+        "The user is chatting back and forth in this chat right now, so they are reading it anyway",
+        "It adds nothing new to messages from the same chat already sent to the dumb phone"
+      ]
+    }
+  }
+}
