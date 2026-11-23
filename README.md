@@ -19,8 +19,12 @@ WhatsApp events ──▶ whatsapp.go ──▶ forwarder.db (queue.go) ◀─�
 
 - Every message is a row in `forwarder.db`, so pending forwards survive restarts.
 - **Read on your phone** (`read-self` receipt) or **replied in the chat** → not forwarded.
+- **Debounce**: each new message in a chat pushes the chat's unread messages back, so they're
+  forwarded once the chat has been quiet for 3 minutes, but at most 10 minutes after each arrived.
 - **Bursts**: when a chat's oldest unread message is due, every other unread message in that chat
   goes with it, as one decision and one SMS (`Ahoj / Kedy prides?`).
+- **Evals**: `eval/cases.json` holds real situations, rewritten in English with made-up people, with the right answer.
+  `JEV_EVAL=1 go test -run Eval -v` runs them through Jev with the current question.
 - **Forward judge** (`judge.go`): before sending, TypeSafe's Jev model gets the chat's last 20
   messages from the past 12 h (your own included, earlier forwards marked) and answers one yes/no
   question: does the user need to see this on the dumb phone? Plans to meet, questions and urgent

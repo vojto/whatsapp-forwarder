@@ -1,0 +1,758 @@
+[
+ {
+  "name": "shared youtube link",
+  "should_forward": false,
+  "state": {
+   "chat": "group chat \"Lunch\"",
+   "now": "Sun 17:03",
+   "messages": [
+    {
+     "time": "Sun 17:00",
+     "from": "Jake Hollis",
+     "text": "https://youtube.com/shorts/xYz123abc",
+     "is_new": true
+    }
+   ]
+  }
+ },
+ {
+  "name": "group: link to a video",
+  "should_forward": false,
+  "state": {
+   "chat": "group chat \"EV owners club\"",
+   "now": "Sat 20:51",
+   "messages": [
+    {
+     "time": "Sat 09:51",
+     "from": "Ray Kovac",
+     "text": "Mega cool. A Cybertruck would fit right in there"
+    },
+    {
+     "time": "Sat 09:59",
+     "from": "Ross Bell",
+     "text": "For my mileage it would pay for itself twice in 10 years. But price to performance still isn't worth it, I'll wait for something new"
+    },
+    {
+     "time": "Sat 14:31",
+     "from": "Mike Lane",
+     "text": "https://www.example-ev-news.com/news/self-driving-update-next-month"
+    },
+    {
+     "time": "Sat 20:48",
+     "from": "Pat Doyle",
+     "text": "Today",
+     "is_new": true
+    },
+    {
+     "time": "Sat 20:48",
+     "from": "Pat Doyle",
+     "text": "https://x.com/someone/status/1234567890/video/1",
+     "is_new": true
+    }
+   ]
+  }
+ },
+ {
+  "name": "group: photo and a joke",
+  "should_forward": false,
+  "state": {
+   "chat": "group chat \"EV owners club\"",
+   "now": "Sat 21:20",
+   "messages": [
+    {
+     "time": "Sat 20:48",
+     "from": "Pat Doyle",
+     "text": "Today"
+    },
+    {
+     "time": "Sat 20:48",
+     "from": "Pat Doyle",
+     "text": "https://x.com/someone/status/1234567890/video/1"
+    },
+    {
+     "time": "Sat 21:17",
+     "from": "Marty Reed",
+     "text": "[photo]",
+     "is_new": true
+    },
+    {
+     "time": "Sat 21:19",
+     "from": "Pat Doyle",
+     "text": "Not even DLSS 5 can touch that 🤣",
+     "is_new": true
+    }
+   ]
+  }
+ },
+ {
+  "name": "banter about a course",
+  "should_forward": false,
+  "state": {
+   "chat": "group chat \"Sailing course\"",
+   "now": "Mon 10:48",
+   "messages": [
+    {
+     "time": "Mon 10:38",
+     "from": "Kevin Shaw",
+     "text": "[photo]"
+    },
+    {
+     "time": "Mon 10:45",
+     "from": "Nora Fields",
+     "text": "I take this personally😂 #passengerprincess",
+     "is_new": true
+    },
+    {
+     "time": "Mon 10:47",
+     "from": "Kevin Shaw",
+     "text": "I am doing single-handed harbour manoeuvres course in the spring just because of you ... I already paid it ... 🤭",
+     "is_new": true
+    }
+   ]
+  }
+ },
+ {
+  "name": "polite closing",
+  "should_forward": false,
+  "state": {
+   "chat": "direct chat",
+   "now": "Sun 09:16",
+   "messages": [
+    {
+     "time": "Sat 23:05",
+     "from": "Mia Grant",
+     "text": "Both are tempting options ☺️🥰"
+    },
+    {
+     "time": "Sat 23:06",
+     "from": "Mia Grant",
+     "text": "A weekend retreat with my church community out of town"
+    },
+    {
+     "time": "Sat 23:06",
+     "from": "Mia Grant",
+     "text": "Long story 😂"
+    },
+    {
+     "time": "Sat 23:19",
+     "from": "me",
+     "text": "haha, hope you feel good there, and tell me sometime what that retreat is about 😅 and if you're back early, let me know"
+    },
+    {
+     "time": "Sun 09:13",
+     "from": "Mia Grant",
+     "text": "Okii, will do 😊",
+     "is_new": true
+    }
+   ],
+   "minutes_since_user_wrote_here": 597
+  }
+ },
+ {
+  "name": "nice wishes, no question",
+  "should_forward": false,
+  "state": {
+   "chat": "direct chat",
+   "now": "Fri 21:25",
+   "messages": [
+    {
+     "time": "Fri 21:22",
+     "from": "Mia Grant",
+     "text": "So glad you had a nice time 🤗 have a lovely weekend too",
+     "is_new": true
+    }
+   ]
+  }
+ },
+ {
+  "name": "just hi",
+  "should_forward": false,
+  "state": {
+   "chat": "direct chat",
+   "now": "Sun 21:06",
+   "messages": [
+    {
+     "time": "Sun 21:03",
+     "from": "Clara Wood",
+     "text": "Hey",
+     "is_new": true
+    }
+   ]
+  }
+ },
+ {
+  "name": "console chit-chat",
+  "should_forward": false,
+  "state": {
+   "chat": "direct chat",
+   "now": "Fri 21:06",
+   "messages": [
+    {
+     "time": "Fri 21:00",
+     "from": "me",
+     "text": "have you tried the new GTA yet? the whole internet is talking about it"
+    },
+    {
+     "time": "Fri 21:01",
+     "from": "John Price",
+     "text": "If I had something to play it on I'd take a day off too 😀"
+    },
+    {
+     "time": "Fri 21:02",
+     "from": "me",
+     "text": "isn't there a PlayStation at the bar? 😃"
+    },
+    {
+     "time": "Fri 21:03",
+     "from": "John Price",
+     "text": "Hm no idea. Probably, but not sure it's a PS5 🤷",
+     "is_new": true
+    },
+    {
+     "time": "Fri 21:04",
+     "from": "John Price",
+     "text": "But my theory is in 2-3 months the classifieds will be full of consoles at half price 😁",
+     "is_new": true
+    }
+   ],
+   "minutes_since_user_wrote_here": 4
+  }
+ },
+ {
+  "name": "asks about lunch plan today",
+  "should_forward": true,
+  "state": {
+   "chat": "direct chat",
+   "now": "Sun 11:29",
+   "messages": [
+    {
+     "time": "Sun 09:57",
+     "from": "me",
+     "text": "hey, write me on WhatsApp today if anything, iMessage isn't working"
+    },
+    {
+     "time": "Sun 11:26",
+     "from": "Tom Archer",
+     "text": "Are you cooking that lunch today?",
+     "is_new": true
+    },
+    {
+     "time": "Sun 11:26",
+     "from": "Tom Archer",
+     "text": "Or should we just go eat somewhere?",
+     "is_new": true
+    }
+   ],
+   "minutes_since_user_wrote_here": 92
+  }
+ },
+ {
+  "name": "train time to meet",
+  "should_forward": true,
+  "state": {
+   "chat": "direct chat",
+   "now": "Thu 10:04",
+   "messages": [
+    {
+     "time": "Thu 09:57",
+     "from": "me",
+     "text": "so when should I be at your place?"
+    },
+    {
+     "time": "Thu 10:01",
+     "from": "Jake Hollis",
+     "text": "I see one leaves at 12:53, so 12:35?",
+     "is_new": true
+    }
+   ],
+   "minutes_since_user_wrote_here": 6
+  }
+ },
+ {
+  "name": "cancels today's lunch",
+  "should_forward": true,
+  "state": {
+   "chat": "group chat \"Weekend crew\"",
+   "now": "Sun 12:40",
+   "messages": [
+    {
+     "time": "Sun 09:50",
+     "from": "Tom Archer",
+     "text": "Ok we can go there",
+     "was_sent_to_dumb_phone": true
+    },
+    {
+     "time": "Sun 10:36",
+     "from": "Jake Hollis",
+     "text": "so where did you guys go? 😀",
+     "was_sent_to_dumb_phone": true
+    },
+    {
+     "time": "Sun 12:37",
+     "from": "John Price",
+     "text": "Hi all, we won't make it to town for lunch today",
+     "is_new": true
+    }
+   ],
+   "minutes_since_user_wrote_here": 170
+  }
+ },
+ {
+  "name": "changes plan: badminton instead of gym, invites user",
+  "should_forward": true,
+  "state": {
+   "chat": "direct chat",
+   "now": "Mon 13:06",
+   "messages": [
+    {
+     "time": "Mon 11:52",
+     "from": "me",
+     "text": "btw when I'm back I'm going straight to the gym"
+    },
+    {
+     "time": "Mon 11:53",
+     "from": "me",
+     "text": "I'll be there around 15:10.. you can join"
+    },
+    {
+     "time": "Mon 11:53",
+     "from": "Tom Archer",
+     "text": "Ok sounds good",
+     "was_sent_to_dumb_phone": true
+    },
+    {
+     "time": "Mon 11:53",
+     "from": "Tom Archer",
+     "text": "We could also go eat at the mall after",
+     "was_sent_to_dumb_phone": true
+    },
+    {
+     "time": "Mon 11:53",
+     "from": "Tom Archer",
+     "text": "But it's only cheaper there from 7pm",
+     "was_sent_to_dumb_phone": true
+    },
+    {
+     "time": "Mon 13:03",
+     "from": "Tom Archer",
+     "text": "I'm going to badminton with Gina, Steve and Clara at 15:30",
+     "is_new": true
+    },
+    {
+     "time": "Mon 13:03",
+     "from": "Tom Archer",
+     "text": "So no gym",
+     "is_new": true
+    },
+    {
+     "time": "Mon 13:03",
+     "from": "Tom Archer",
+     "text": "But you can come with us if you want",
+     "is_new": true
+    }
+   ],
+   "minutes_since_user_wrote_here": 73
+  }
+ },
+ {
+  "name": "asks to send a pickup code tomorrow",
+  "should_forward": true,
+  "state": {
+   "chat": "direct chat",
+   "now": "Thu 16:51",
+   "messages": [
+    {
+     "time": "Thu 16:25",
+     "from": "me",
+     "text": "can we write here on WhatsApp instead?"
+    },
+    {
+     "time": "Thu 16:25",
+     "from": "me",
+     "text": "730 without VAT then? and which parcel locker?"
+    },
+    {
+     "time": "Thu 16:48",
+     "from": "Mike Rowan",
+     "text": "So it should arrive tomorrow? Will you text me the code then?",
+     "is_new": true
+    }
+   ],
+   "minutes_since_user_wrote_here": 25
+  }
+ },
+ {
+  "name": "asks if Thursday meetup is on",
+  "should_forward": true,
+  "state": {
+   "chat": "direct chat",
+   "now": "Tue 17:51",
+   "messages": [
+    {
+     "time": "Tue 10:23",
+     "from": "John Price",
+     "text": "Are you buying those new shares on Thursday?"
+    },
+    {
+     "time": "Tue 11:36",
+     "from": "me",
+     "text": "Hehe wasn't planning to 😅"
+    },
+    {
+     "time": "Tue 16:29",
+     "from": "me",
+     "text": "Will you try to buy some?"
+    },
+    {
+     "time": "Tue 17:48",
+     "from": "John Price",
+     "text": "Maybe a symbolic amount 😁 not sure, it's debatable 😀",
+     "is_new": true
+    },
+    {
+     "time": "Tue 17:49",
+     "from": "John Price",
+     "text": "Is the meetup on Thursday by the way? 😀",
+     "is_new": true
+    }
+   ],
+   "minutes_since_user_wrote_here": 82
+  }
+ },
+ {
+  "name": "asks user to cook potatoes, brings meat",
+  "should_forward": true,
+  "state": {
+   "chat": "direct chat",
+   "now": "Wed 09:55",
+   "messages": [
+    {
+     "time": "Wed 07:12",
+     "from": "Jake Hollis",
+     "text": "hey… sorry I didn't reply, my phone died…"
+    },
+    {
+     "time": "Wed 07:41",
+     "from": "me",
+     "text": "No worries"
+    },
+    {
+     "time": "Wed 09:49",
+     "from": "me",
+     "text": "Want to have lunch today?"
+    },
+    {
+     "time": "Wed 09:52",
+     "from": "Jake Hollis",
+     "text": "listen :D will you make potatoes?",
+     "is_new": true
+    },
+    {
+     "time": "Wed 09:52",
+     "from": "Jake Hollis",
+     "text": "I have pork tenderloin for sous vide 😀",
+     "is_new": true
+    },
+    {
+     "time": "Wed 09:52",
+     "from": "Jake Hollis",
+     "text": "I can bring it 😀",
+     "is_new": true
+    }
+   ],
+   "minutes_since_user_wrote_here": 6
+  }
+ },
+ {
+  "name": "shopping list for cooking together",
+  "should_forward": true,
+  "state": {
+   "chat": "direct chat",
+   "now": "Sat 12:49",
+   "messages": [
+    {
+     "time": "Sat 12:46",
+     "from": "John Price",
+     "text": "Coriander (fresh I think)\nSpring onion - important\nGround black pepper\nChicken breasts (about 1kg)\nSprite 🤷",
+     "is_new": true
+    }
+   ]
+  }
+ },
+ {
+  "name": "how are you + are you at lunch with them",
+  "should_forward": true,
+  "state": {
+   "chat": "direct chat",
+   "now": "Sun 12:33",
+   "messages": [
+    {
+     "time": "Sun 12:30",
+     "from": "Jake Hollis",
+     "text": "hey, how's it going?",
+     "is_new": true
+    },
+    {
+     "time": "Sun 12:30",
+     "from": "Jake Hollis",
+     "text": "are you at lunch with the Prices and Tom?",
+     "is_new": true
+    }
+   ]
+  }
+ },
+ {
+  "name": "favor: ask colleagues about a phone",
+  "should_forward": false,
+  "state": {
+   "chat": "direct chat",
+   "now": "Fri 09:34",
+   "messages": [
+    {
+     "time": "Fri 09:28",
+     "from": "me",
+     "text": "I'll let you know when it arrives"
+    },
+    {
+     "time": "Fri 09:29",
+     "from": "me",
+     "text": "it's here now, it's in the parcel locker at the square"
+    },
+    {
+     "time": "Fri 09:29",
+     "from": "Mike Rowan",
+     "text": "On my way, and how about the money?"
+    },
+    {
+     "time": "Fri 09:29",
+     "from": "me",
+     "text": "730.89 in total, I sent you my account number"
+    },
+    {
+     "time": "Fri 09:31",
+     "from": "Mike Rowan",
+     "text": "Thanks, and please still ask about that phone for me 🙏",
+     "is_new": true
+    }
+   ],
+   "minutes_since_user_wrote_here": 4
+  }
+ },
+ {
+  "name": "favor: send where to sign up for the cabin",
+  "should_forward": false,
+  "state": {
+   "chat": "group chat \"Lunch\"",
+   "now": "Thu 15:10",
+   "messages": [
+    {
+     "time": "Thu 07:29",
+     "from": "me",
+     "text": "Or maybe better at 11.. is anyone coming with me?"
+    },
+    {
+     "time": "Thu 07:36",
+     "from": "Jake Hollis",
+     "text": "No, I'd go now...",
+     "was_sent_to_dumb_phone": true
+    },
+    {
+     "time": "Thu 07:57",
+     "from": "me",
+     "text": "Ok I'm going now"
+    },
+    {
+     "time": "Thu 08:45",
+     "from": "Tom Archer",
+     "text": "I couldn't sleep so I'll go before lunch or after work",
+     "was_sent_to_dumb_phone": true
+    },
+    {
+     "time": "Thu 15:07",
+     "from": "Jake Hollis",
+     "text": "Send me where to sign up for that cabin trip...",
+     "is_new": true
+    }
+   ],
+   "minutes_since_user_wrote_here": 420
+  }
+ },
+ {
+  "name": "gossip question about other people",
+  "should_forward": false,
+  "state": {
+   "chat": "direct chat",
+   "now": "Wed 18:17",
+   "messages": [
+    {
+     "time": "Wed 14:31",
+     "from": "me",
+     "text": "[media]"
+    },
+    {
+     "time": "Wed 14:31",
+     "from": "me",
+     "text": "what do we think about this? 😃"
+    },
+    {
+     "time": "Wed 18:14",
+     "from": "Clara Wood",
+     "text": "Well, probably it means nothing, she just joined the group. Maybe she'll come to a meetup now and then... Do you think she and Ben have something going again? They confuse me 😅",
+     "is_new": true
+    },
+    {
+     "time": "Wed 18:15",
+     "from": "Clara Wood",
+     "text": "Wait, are they together again?",
+     "is_new": true
+    }
+   ],
+   "minutes_since_user_wrote_here": 226
+  }
+ },
+ {
+  "name": "confirms user's gym plan, suggests dinner after",
+  "should_forward": true,
+  "state": {
+   "chat": "direct chat",
+   "now": "Mon 11:56",
+   "messages": [
+    {
+     "time": "Mon 11:51",
+     "from": "Tom Archer",
+     "text": "Ah never mind then, I just finished playing"
+    },
+    {
+     "time": "Mon 11:51",
+     "from": "Tom Archer",
+     "text": "I'll go eat somewhere"
+    },
+    {
+     "time": "Mon 11:52",
+     "from": "me",
+     "text": "btw when I'm back I'm going straight to the gym"
+    },
+    {
+     "time": "Mon 11:53",
+     "from": "me",
+     "text": "I'll be there around 15:10.. you can join"
+    },
+    {
+     "time": "Mon 11:53",
+     "from": "Tom Archer",
+     "text": "Ok sounds good",
+     "is_new": true
+    },
+    {
+     "time": "Mon 11:53",
+     "from": "Tom Archer",
+     "text": "We could also go eat at the mall after",
+     "is_new": true
+    },
+    {
+     "time": "Mon 11:53",
+     "from": "Tom Archer",
+     "text": "But it's only cheaper there from 7pm",
+     "is_new": true
+    }
+   ],
+   "minutes_since_user_wrote_here": 3
+  }
+ },
+ {
+  "name": "can't talk now, after user tried to reach her",
+  "should_forward": true,
+  "state": {
+   "chat": "direct chat",
+   "now": "Sat 16:53",
+   "messages": [
+    {
+     "time": "Sat 16:50",
+     "from": "Clara Wood",
+     "text": "Sorry, can't talk right now.",
+     "is_new": true
+    }
+   ]
+  }
+ },
+ {
+  "name": "friends wanted to join user's plan, ask where next",
+  "should_forward": true,
+  "state": {
+   "chat": "group chat \"Weekend crew\"",
+   "now": "Sun 07:28",
+   "messages": [
+    {
+     "time": "Sun 07:14",
+     "from": "me",
+     "text": "hey all, I'm going to the 8:30 mass at St. Mary's if anyone wants to join"
+    },
+    {
+     "time": "Sun 07:24",
+     "from": "me",
+     "text": "^ hm actually I probably won't make it 😃 now that I think about it"
+    },
+    {
+     "time": "Sun 07:24",
+     "from": "Lucy Price",
+     "text": "Oops, we wanted to join 🤣",
+     "is_new": true
+    },
+    {
+     "time": "Sun 07:25",
+     "from": "Lucy Price",
+     "text": "So which one are you going to next?",
+     "is_new": true
+    }
+   ],
+   "minutes_since_user_wrote_here": 3
+  }
+ },
+ {
+  "name": "friends cancel joining after all",
+  "should_forward": true,
+  "state": {
+   "chat": "group chat \"Weekend crew\"",
+   "now": "Sun 07:41",
+   "messages": [
+    {
+     "time": "Sun 07:14",
+     "from": "me",
+     "text": "hey all, I'm going to the 8:30 mass at St. Mary's if anyone wants to join"
+    },
+    {
+     "time": "Sun 07:24",
+     "from": "me",
+     "text": "^ hm actually I probably won't make it 😃 now that I think about it"
+    },
+    {
+     "time": "Sun 07:24",
+     "from": "Lucy Price",
+     "text": "Oops, we wanted to join 🤣"
+    },
+    {
+     "time": "Sun 07:25",
+     "from": "Lucy Price",
+     "text": "So which one are you going to next?"
+    },
+    {
+     "time": "Sun 07:25",
+     "from": "me",
+     "text": "oh then I'll hurry"
+    },
+    {
+     "time": "Sun 07:25",
+     "from": "me",
+     "text": "let's do 8:30 then"
+    },
+    {
+     "time": "Sun 07:38",
+     "from": "Lucy Price",
+     "text": "Ah never mind 😅 we won't make it now, we'll have to go later",
+     "is_new": true
+    }
+   ],
+   "minutes_since_user_wrote_here": 16
+  }
+ }
+]

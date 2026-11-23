@@ -5,7 +5,9 @@ package main
 //     so pending forwards survive restarts. whatsmeow's store.db is never touched here.
 //   - It is also the chat history the forward judge reads: your own messages are stored as mine
 //     rows, and finished rows keep their text until pruned.
-//   - Rows start pending with due_at = received_at + forwardDelay. Read receipts and your own
+//   - Rows start pending with due_at = received_at + forwardDelay. Each new message pushes the
+//     chat's other pending rows to the same due time (debounce), so a burst waits until the chat
+//     is quiet for forwardDelay, but never more than maxForwardWait after a row arrived. Read receipts and your own
 //     messages move pending rows to read/replied; the scheduler claims due rows (sending), together
 //     with the rest of the chat's pending rows as one burst, and finishes them as
 //     sent/skipped/stale/failed, or puts them back to pending for a retry.
@@ -42,6 +44,7 @@ import (
 )
 
 const forwardDelay = 3 * time.Minute
+const maxForwardWait = 10 * time.Minute
 const crashedMidSendReason = "unknown (crashed mid-send)"
 
 type MessageStatus string
@@ -150,15 +153,25 @@ func (queue *Queue) FailInterruptedSends(now time.Time) (int, error) {
 // Incoming events
 // ---------------------------------------------------------------------------
 
-// Add stores a new pending message due forwardDelay after it was received.
-// Returns false if a row with that message ID already exists.
+// Add stores a new pending message due forwardDelay after it was received, and pushes the chat's
+// other pending messages to that time too: only those still waiting when it arrived (an offline
+// backlog can deliver much newer messages at once), never past maxForwardWait after each one
+// arrived, and never earlier than they already were. Returns false if the message ID exists.
 func (queue *Queue) Add(message Message, now time.Time) (bool, error) {
+	dueAt := millis(message.ReceivedAt.Add(forwardDelay))
 	count, err := queue.exec(`INSERT OR IGNORE INTO messages
 		(message_id, chat_jid, sender_name, sender_phone, text, received_at, due_at, status, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		message.MessageID, message.ChatJID, message.SenderName, message.SenderPhone, message.Text,
-		millis(message.ReceivedAt), millis(message.ReceivedAt.Add(forwardDelay)), StatusPending, millis(now))
-	return count > 0, err
+		millis(message.ReceivedAt), dueAt, StatusPending, millis(now))
+	if err != nil || count == 0 {
+		return false, err
+	}
+	_, err = queue.exec(`UPDATE messages SET due_at = MAX(due_at, MIN(received_at + ?, ?)), updated_at = ?
+		WHERE chat_jid = ? AND status = ? AND message_id != ? AND due_at >= ?`,
+		maxForwardWait.Milliseconds(), dueAt, millis(now), message.ChatJID, StatusPending, message.MessageID,
+		millis(message.ReceivedAt))
+	return true, err
 }
 
 // AddMine stores one of your own messages as chat history. Returns false if it already exists.

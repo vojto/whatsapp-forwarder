@@ -309,6 +309,8 @@ func TestBurstIsForwardedAsOneSMS(t *testing.T) {
 	harness.addText("m1", directChat, startTime, "Ahoj")
 	harness.addText("m2", directChat, startTime.Add(time.Minute), "Kedy prídeš?")
 	harness.advance(forwardDelay)
+	harness.expectSendCount(0)
+	harness.advance(time.Minute)
 
 	harness.expectSendCount(1)
 	harness.expectSent(0, "Klaudia", "+421900111222: Ahoj / Kedy prides?")
@@ -317,6 +319,48 @@ func TestBurstIsForwardedAsOneSMS(t *testing.T) {
 	if len(harness.judge.states) != 1 {
 		t.Fatalf("judge asked %d times, want once per burst", len(harness.judge.states))
 	}
+}
+
+func TestNewMessageDelaysBurstUntilChatIsQuiet(t *testing.T) {
+	harness := newResumedHarness(t)
+	harness.add("m1", directChat, startTime)
+	harness.add("m2", directChat, startTime.Add(2*time.Minute+50*time.Second))
+	harness.add("other", otherDirectChat, startTime.Add(time.Minute))
+	harness.advance(forwardDelay + time.Minute)
+	harness.expectStatus("m1", StatusPending)
+	harness.expectStatus("other", StatusSent)
+
+	harness.advance(time.Minute + 50*time.Second)
+	harness.expectStatus("m1", StatusSent)
+	harness.expectStatus("m2", StatusSent)
+	harness.expectSendCount(2)
+}
+
+func TestChattyBurstIsSentAfterMaxWait(t *testing.T) {
+	harness := newResumedHarness(t)
+	for minute := 0; minute < 15; minute++ {
+		harness.add(fmt.Sprintf("m%d", minute), directChat, startTime.Add(time.Duration(minute)*time.Minute))
+		if minute < 14 {
+			harness.advance(time.Minute)
+		}
+	}
+	// m0 is due at the 10-minute cap; everything received by then (m0–m9) goes with it.
+	harness.expectSendCount(1)
+	harness.expectStatus("m0", StatusSent)
+	harness.expectStatus("m9", StatusSent)
+	harness.expectStatus("m10", StatusPending)
+}
+
+func TestBacklogMessageDoesNotDelayMessagesAlreadyDue(t *testing.T) {
+	harness := newHarness(t)
+	harness.add("old", directChat, startTime.Add(-time.Hour))
+	harness.add("newer", directChat, startTime.Add(-time.Minute))
+	harness.scheduler.Resume()
+	harness.advance(0)
+
+	harness.expectStatus("old", StatusSent)
+	harness.expectStatus("newer", StatusSent)
+	harness.expectSendCount(1)
 }
 
 func TestMessageAfterBurstStartsNewBurst(t *testing.T) {
@@ -338,7 +382,7 @@ func TestJudgeSaysNoSkipsBurst(t *testing.T) {
 	harness.judge.probability = 0.2
 	harness.add("m1", directChat, startTime)
 	harness.add("m2", directChat, startTime.Add(time.Second))
-	harness.advance(forwardDelay)
+	harness.advance(forwardDelay + time.Second)
 
 	harness.expectSendCount(0)
 	for _, messageID := range []string{"m1", "m2"} {
