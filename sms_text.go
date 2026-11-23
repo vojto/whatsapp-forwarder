@@ -53,7 +53,7 @@ func fitsOneSegment(text string) bool {
 	return gsmUnits(toGSMText(linkPattern.ReplaceAllString(text, linkPlaceholder))) <= smsSegmentUnits
 }
 
-// senderID turns a contact name into an alphanumeric SMS sender ID ("Klaudia Komárová" → "Klaudia"),
+// senderID turns a contact name into an alphanumeric SMS sender ID ("Lenka Horváthová" → "Lenka"),
 // or "" if the name has no usable letters.
 func senderID(name string) string {
 	var builder strings.Builder

@@ -32,7 +32,7 @@ func TestForwardsUnreadMessageOnceAfterDelay(t *testing.T) {
 	harness.advance(time.Second)
 	harness.advance(time.Hour)
 	harness.expectSendCount(1)
-	harness.expectSent(0, "Klaudia", "+421900111222: Ahoj, kedy prides?")
+	harness.expectSent(0, "Lenka", "+421900111222: Ahoj, kedy prides?")
 	message := harness.expectStatus("m1", StatusSent)
 	if message.TwilioSID != "SM1" {
 		t.Fatalf("twilio SID = %q, want SM1", message.TwilioSID)
@@ -253,7 +253,7 @@ func TestChatRules(t *testing.T) {
 	}
 	harness.expectStatus("small group", StatusSent)
 	harness.expectSendCount(1)
-	harness.expectSent(0, "Klaudia", "+421900111222 @ Rodina: Ahoj, kedy prides?")
+	harness.expectSent(0, "Lenka", "+421900111222 @ Rodina: Ahoj, kedy prides?")
 }
 
 func TestChatLookupErrorIsRetried(t *testing.T) {
@@ -313,7 +313,7 @@ func TestBurstIsForwardedAsOneSMS(t *testing.T) {
 	harness.advance(time.Minute)
 
 	harness.expectSendCount(1)
-	harness.expectSent(0, "Klaudia", "+421900111222: Ahoj / Kedy prides?")
+	harness.expectSent(0, "Lenka", "+421900111222: Ahoj / Kedy prides?")
 	harness.expectStatus("m1", StatusSent)
 	harness.expectStatus("m2", StatusSent)
 	if len(harness.judge.states) != 1 {
@@ -546,8 +546,8 @@ func TestDeliveryCheckErrorIsRetriedLater(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestSMSBody(t *testing.T) {
-	klaudia := func(text string) Message {
-		return Message{SenderName: "Klaudia K", SenderPhone: "+421900111222", Text: text}
+	lenka := func(text string) Message {
+		return Message{SenderName: "Lenka H", SenderPhone: "+421900111222", Text: text}
 	}
 	peter := Message{SenderName: "Peter", SenderPhone: "+421900999999", Text: "Ja tiez"}
 	family := ChatInfo{IsGroup: true, GroupName: "Rodina"}
@@ -557,16 +557,16 @@ func TestSMSBody(t *testing.T) {
 		chat  ChatInfo
 		want  string
 	}{
-		{"direct", []Message{klaudia("Ahoj")}, ChatInfo{}, "+421900111222: Ahoj"},
+		{"direct", []Message{lenka("Ahoj")}, ChatInfo{}, "+421900111222: Ahoj"},
 		{"direct without phone", []Message{{Text: "Ahoj"}}, ChatInfo{}, "Ahoj"},
-		{"group", []Message{klaudia("Ahoj")}, family, "+421900111222 @ Rodina: Ahoj"},
+		{"group", []Message{lenka("Ahoj")}, family, "+421900111222 @ Rodina: Ahoj"},
 		{"group without phone", []Message{{Text: "Ahoj"}}, family, "@ Rodina: Ahoj"},
 		{"converted to GSM", []Message{{SenderPhone: "+421", Text: "Čau 👋"}}, ChatInfo{}, "+421: Cau"},
-		{"burst", []Message{klaudia("Ahoj"), klaudia("👋"), klaudia("Kedy prides?")}, ChatInfo{},
+		{"burst", []Message{lenka("Ahoj"), lenka("👋"), lenka("Kedy prides?")}, ChatInfo{},
 			"+421900111222: Ahoj / Kedy prides?"},
-		{"several people in a group", []Message{klaudia("Ideme?"), peter}, family,
-			"@ Rodina: Klaudia: Ideme? / Peter: Ja tiez"},
-		{"too long drops oldest first", []Message{klaudia(strings.Repeat("a", 100)), klaudia(strings.Repeat("b", 100)), klaudia("Kedy?")},
+		{"several people in a group", []Message{lenka("Ideme?"), peter}, family,
+			"@ Rodina: Lenka: Ideme? / Peter: Ja tiez"},
+		{"too long drops oldest first", []Message{lenka(strings.Repeat("a", 100)), lenka(strings.Repeat("b", 100)), lenka("Kedy?")},
 			ChatInfo{}, "+421900111222: ... " + strings.Repeat("b", 100) + " / Kedy?"},
 	}
 	for _, test := range tests {
@@ -669,7 +669,7 @@ func (harness *harness) addText(messageID string, chatJID string, receivedAt tim
 	message := Message{
 		MessageID:   messageID,
 		ChatJID:     chatJID,
-		SenderName:  "Klaudia Komárová",
+		SenderName:  "Lenka Horváthová",
 		SenderPhone: "+421900111222",
 		Text:        text,
 		ReceivedAt:  receivedAt,

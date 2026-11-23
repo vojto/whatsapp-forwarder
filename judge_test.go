@@ -23,7 +23,7 @@ func TestJevJudgeSendsStateAndQuestionAndReadsProbability(t *testing.T) {
 	judge := newJevJudge("key")
 	judge.url = server.URL
 
-	probability, err := judge.ForwardProbability(context.Background(), JudgeState{Chat: "direct chat", Messages: []JudgeMessage{{From: "Klaudia", Text: "Obed?", IsNew: true}}})
+	probability, err := judge.ForwardProbability(context.Background(), JudgeState{Chat: "direct chat", Messages: []JudgeMessage{{From: "Lenka", Text: "Obed?", IsNew: true}}})
 	if err != nil || probability != 0.83 {
 		t.Fatalf("probability = %v, err = %v", probability, err)
 	}
