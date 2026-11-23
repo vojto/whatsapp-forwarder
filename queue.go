@@ -1,11 +1,14 @@
 package main
 
 // Expected behavior:
-//   - forwarder.db holds every incoming message the forwarder cares about, one row per WhatsApp
-//     message ID, so pending forwards survive restarts. whatsmeow's store.db is never touched here.
+//   - forwarder.db holds every message the forwarder cares about, one row per WhatsApp message ID,
+//     so pending forwards survive restarts. whatsmeow's store.db is never touched here.
+//   - It is also the chat history the forward judge reads: your own messages are stored as mine
+//     rows, and finished rows keep their text until pruned.
 //   - Rows start pending with due_at = received_at + forwardDelay. Read receipts and your own
-//     messages move pending rows to read/replied; the scheduler claims due rows (sending) and
-//     finishes them as sent/skipped/stale/failed, or puts them back to pending for a retry.
+//     messages move pending rows to read/replied; the scheduler claims due rows (sending), together
+//     with the rest of the chat's pending rows as one burst, and finishes them as
+//     sent/skipped/stale/failed, or puts them back to pending for a retry.
 //   - Every status change only applies to rows still in the expected state, so a read receipt can
 //     never undo a send and a late scheduler can never resurrect a read message.
 //
@@ -31,6 +34,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -51,6 +55,8 @@ const (
 	StatusSending MessageStatus = "sending"
 	StatusSent    MessageStatus = "sent"
 	StatusFailed  MessageStatus = "failed"
+	// StatusMine marks your own messages, stored only as chat history for the judge.
+	StatusMine MessageStatus = "mine"
 )
 
 type Message struct {
@@ -155,6 +161,16 @@ func (queue *Queue) Add(message Message, now time.Time) (bool, error) {
 	return count > 0, err
 }
 
+// AddMine stores one of your own messages as chat history. Returns false if it already exists.
+func (queue *Queue) AddMine(message Message, now time.Time) (bool, error) {
+	count, err := queue.exec(`INSERT OR IGNORE INTO messages
+		(message_id, chat_jid, sender_name, text, received_at, due_at, status, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		message.MessageID, message.ChatJID, message.SenderName, message.Text,
+		millis(message.ReceivedAt), millis(message.ReceivedAt), StatusMine, millis(now))
+	return count > 0, err
+}
+
 // MarkRead marks pending messages as read, and records unknown IDs as read placeholders so the
 // message itself is ignored if it arrives later. Returns how many pending messages it cancelled.
 func (queue *Queue) MarkRead(messageIDs []string, now time.Time) (int, error) {
@@ -213,6 +229,35 @@ func (queue *Queue) ClaimNextDue(now time.Time) (Message, bool, error) {
 	return message, err == nil, err
 }
 
+// ClaimChatPending moves every other pending message in the chat received by now to sending, so
+// a burst of messages is judged and forwarded together. Returns them oldest first.
+func (queue *Queue) ClaimChatPending(chatJID string, now time.Time) ([]Message, error) {
+	rows, err := queue.database.Query(`UPDATE messages SET status = ?, attempts = attempts + 1, updated_at = ?
+		WHERE chat_jid = ? AND status = ? AND received_at <= ?
+		RETURNING `+messageColumns,
+		StatusSending, millis(now), chatJID, StatusPending, millis(now))
+	if err != nil {
+		return nil, fmt.Errorf("UPDATE: %w", err)
+	}
+	messages, err := scanMessages(rows)
+	slices.SortFunc(messages, func(first, second Message) int { return first.ReceivedAt.Compare(second.ReceivedAt) })
+	return messages, err
+}
+
+// RecentChat returns the chat's newest messages with text (any status, yours included) received
+// since the given time, at most limit of them, oldest first.
+func (queue *Queue) RecentChat(chatJID string, since time.Time, limit int) ([]Message, error) {
+	rows, err := queue.database.Query(`SELECT `+messageColumns+` FROM messages
+		WHERE chat_jid = ? AND text != '' AND received_at >= ?
+		ORDER BY received_at DESC LIMIT ?`, chatJID, millis(since), limit)
+	if err != nil {
+		return nil, fmt.Errorf("SELECT: %w", err)
+	}
+	messages, err := scanMessages(rows)
+	slices.Reverse(messages)
+	return messages, err
+}
+
 // Finish records the final outcome of a claimed message (sent, skipped, stale or failed).
 // Sent messages get sent_at = now.
 func (queue *Queue) Finish(messageID string, status MessageStatus, reason string, twilioSID string, now time.Time) error {
@@ -249,16 +294,7 @@ func (queue *Queue) UnconfirmedDeliveries() ([]Message, error) {
 	if err != nil {
 		return nil, fmt.Errorf("SELECT: %w", err)
 	}
-	defer rows.Close()
-	var messages []Message
-	for rows.Next() {
-		message, err := scanMessage(rows)
-		if err != nil {
-			return nil, err
-		}
-		messages = append(messages, message)
-	}
-	return messages, rows.Err()
+	return scanMessages(rows)
 }
 
 // RecordDelivery stores Twilio's delivery status (and error, if any) for a sent message.
@@ -337,6 +373,20 @@ func (queue *Queue) exec(query string, arguments ...any) (int, error) {
 	}
 	count, err := result.RowsAffected()
 	return int(count), err
+}
+
+// scanMessages reads every messageColumns row and closes rows.
+func scanMessages(rows *sql.Rows) ([]Message, error) {
+	defer rows.Close()
+	var messages []Message
+	for rows.Next() {
+		message, err := scanMessage(rows)
+		if err != nil {
+			return nil, err
+		}
+		messages = append(messages, message)
+	}
+	return messages, rows.Err()
 }
 
 // scanMessage reads one messageColumns row from a *sql.Row or *sql.Rows.

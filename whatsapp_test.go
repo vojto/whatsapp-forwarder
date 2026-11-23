@@ -287,8 +287,11 @@ func TestMessageFromMeInLIDChatMarksPhoneChatReplied(t *testing.T) {
 	if status := harness.status(t, "M1"); status != StatusReplied {
 		t.Fatalf("status = %s, want replied", status)
 	}
-	if status := harness.status(t, "R1"); status != "" {
-		t.Fatalf("own message queued with status %s", status)
+	if status := harness.status(t, "R1"); status != StatusMine {
+		t.Fatalf("own message status = %q, want mine", status)
+	}
+	if mine, _, _ := harness.queue.Get("R1"); mine.ChatJID != klaudiaPhone.String() || mine.Text != "ok" {
+		t.Fatalf("own message stored as %+v", mine)
 	}
 }
 

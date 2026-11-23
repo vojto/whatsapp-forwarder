@@ -20,7 +20,7 @@ import (
 	"go.mau.fi/whatsmeow/types"
 )
 
-const maxGroupSize = 5
+const maxGroupSize = 10
 
 // ChatInfo is what the forwarding rules need to know about a chat at send time.
 type ChatInfo struct {

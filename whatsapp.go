@@ -2,8 +2,9 @@ package main
 
 // Expected behavior:
 //   - Incoming person/group messages with something to show go into the queue; the scheduler
-//     forwards them later. your own messages mark the chat's pending messages replied, and
-//     read-self receipts (read on another device) mark messages read.
+//     forwards them later. Your own messages are stored as chat history for the forward judge
+//     and mark the chat's pending messages replied. Read-self receipts (read on another device)
+//     mark messages read.
 //   - The scheduler only runs between OfflineSyncCompleted and the next disconnect, so the offline
 //     backlog's receipts and replies are applied before anything due gets forwarded. If the server
 //     never sends OfflineSyncCompleted, the scheduler resumes offlineSyncTimeout after Connected.
@@ -201,6 +202,13 @@ func (whatsApp *WhatsApp) addMessage(event *events.Message) bool {
 
 func (whatsApp *WhatsApp) markReplied(event *events.Message) bool {
 	chat := whatsApp.normalizedChat(context.Background(), event.Info.Chat)
+	if text, hasContent := messageText(event.Message); hasContent && isPersonOrGroup(event.Info.Chat) {
+		mine := Message{MessageID: event.Info.ID, ChatJID: chat, SenderName: "me", Text: text, ReceivedAt: event.Info.Timestamp}
+		if _, err := whatsApp.queue.AddMine(mine, whatsApp.now()); err != nil {
+			log.Printf("failed to store own message %s: %v", event.Info.ID, err)
+			return false
+		}
+	}
 	count, err := whatsApp.queue.MarkReplied(chat, event.Info.Timestamp, whatsApp.now())
 	if err != nil {
 		log.Printf("failed to mark %s replied: %v", chat, err)

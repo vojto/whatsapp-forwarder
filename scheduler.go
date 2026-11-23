@@ -1,8 +1,12 @@
 package main
 
 // Expected behavior:
-//   - The scheduler forwards due queue rows as SMS: every pollInterval it claims due messages one
-//     by one and finishes each as sent, skipped, stale or failed, or puts it back for a retry.
+//   - The scheduler forwards due queue rows as SMS: every pollInterval it claims the next due
+//     message together with every other pending message in its chat (a burst), and finishes the
+//     whole burst as sent, skipped or failed, or puts it back for a retry. A burst is one SMS.
+//   - Before sending, the forward judge (judge.go) decides whether the burst is worth an SMS. When
+//     it says no, the burst is skipped with the probability as the reason. Without a judge, or
+//     when it fails, the burst is forwarded.
 //   - Messages received more than staleAfter ago are never sent. Late messages younger than that
 //     (e.g. due while the process was down) are still forwarded.
 //   - Temporary failures (ErrTemporarySendFailure, chat lookup errors) are retried after
@@ -19,6 +23,8 @@ package main
 //     messages that are already due) hasn't arrived, and forwarding would send read messages.
 //   - Pause/Resume come from whatsmeow's event goroutines, so the paused flag is atomic.
 //   - A retry is a normal pending row, so a read receipt or reply during the backoff cancels it.
+//     A retried burst asks the judge again.
+//   - The burst shares the oldest message's attempt count for backoff, since it was due first.
 //   - Queue errors stop the current tick; the row stays as it is and the next tick tries again
 //     (a row stuck in sending only becomes failed at the next startup).
 //   - Delivery checks run even while paused: they only talk to Twilio, not WhatsApp.
@@ -97,6 +103,7 @@ type Scheduler struct {
 	chats       ChatLookup
 	sms         SMSSender
 	deliveries  DeliveryChecker
+	judge       ForwardJudge
 	now         Clock
 	isPaused    atomic.Bool
 	lastPruneAt time.Time
@@ -107,8 +114,9 @@ type Scheduler struct {
 // Lifecycle
 // ---------------------------------------------------------------------------
 
-func NewScheduler(queue *Queue, chats ChatLookup, sms SMSSender, deliveries DeliveryChecker, now Clock) *Scheduler {
-	scheduler := &Scheduler{queue: queue, chats: chats, sms: sms, deliveries: deliveries, now: now}
+// NewScheduler builds a paused scheduler. judge may be nil, which forwards every burst.
+func NewScheduler(queue *Queue, chats ChatLookup, sms SMSSender, deliveries DeliveryChecker, judge ForwardJudge, now Clock) *Scheduler {
+	scheduler := &Scheduler{queue: queue, chats: chats, sms: sms, deliveries: deliveries, judge: judge, now: now}
 	scheduler.isPaused.Store(true)
 	return scheduler
 }
@@ -143,7 +151,12 @@ func (scheduler *Scheduler) Tick(ctx context.Context) {
 		if !isClaimed {
 			break
 		}
-		if err := scheduler.handle(ctx, message); err != nil {
+		burst, err := scheduler.queue.ClaimChatPending(message.ChatJID, scheduler.now())
+		if err != nil {
+			log.Printf("queue error while claiming the rest of %s: %v", message.ChatJID, err)
+			return
+		}
+		if err := scheduler.handle(ctx, append([]Message{message}, burst...)); err != nil {
 			log.Printf("queue error while finishing %s: %v", message.MessageID, err)
 			return
 		}
@@ -167,60 +180,169 @@ func (scheduler *Scheduler) Resume() {
 // Forwarding
 // ---------------------------------------------------------------------------
 
-// handle decides the outcome of one claimed message. Returned errors are queue errors.
-func (scheduler *Scheduler) handle(ctx context.Context, message Message) error {
+// handle decides the outcome of one claimed burst (oldest first). Returned errors are queue errors.
+func (scheduler *Scheduler) handle(ctx context.Context, burst []Message) error {
 	now := scheduler.now()
-	if now.Sub(message.ReceivedAt) > staleAfter {
+	var fresh []Message
+	for _, message := range burst {
+		if now.Sub(message.ReceivedAt) <= staleAfter {
+			fresh = append(fresh, message)
+			continue
+		}
 		log.Printf("stale %s", message.MessageID)
-		return scheduler.queue.Finish(message.MessageID, StatusStale, "older than 12h", "", now)
+		if err := scheduler.queue.Finish(message.MessageID, StatusStale, "older than 12h", "", now); err != nil {
+			return err
+		}
+	}
+	if len(fresh) == 0 {
+		return nil
 	}
 
-	chat, err := scheduler.chats.ChatInfo(ctx, message.ChatJID)
+	chat, err := scheduler.chats.ChatInfo(ctx, fresh[0].ChatJID)
 	if err != nil {
-		return scheduler.retryOrFail(message, fmt.Errorf("chat info: %w", err))
+		return scheduler.retryOrFail(fresh, fmt.Errorf("chat info: %w", err))
 	}
-	if reason := skipReason(chat); reason != "" {
-		log.Printf("skipped %s (%s)", message.MessageID, reason)
-		return scheduler.queue.Finish(message.MessageID, StatusSkipped, reason, "", now)
+	reason := skipReason(chat)
+	if reason == "" {
+		reason = scheduler.judgeSkipReason(ctx, chat, fresh)
+	}
+	if reason != "" {
+		log.Printf("skipped %d from %s (%s)", len(fresh), fresh[0].ChatJID, reason)
+		return scheduler.finishAll(fresh, StatusSkipped, reason, "")
 	}
 
-	twilioSID, err := scheduler.sms.Send(ctx, senderID(message.SenderName), smsBody(message, chat))
+	twilioSID, err := scheduler.sms.Send(ctx, burstSenderID(fresh, chat), smsBody(fresh, chat))
 	if errors.Is(err, ErrTemporarySendFailure) {
-		return scheduler.retryOrFail(message, err)
+		return scheduler.retryOrFail(fresh, err)
 	}
 	if err != nil {
-		log.Printf("failed to forward %s: %v", message.MessageID, err)
-		return scheduler.queue.Finish(message.MessageID, StatusFailed, err.Error(), "", scheduler.now())
+		log.Printf("failed to forward %d from %s: %v", len(fresh), fresh[0].ChatJID, err)
+		return scheduler.finishAll(fresh, StatusFailed, err.Error(), "")
 	}
-	log.Printf("forwarded %s from %s", message.MessageID, message.SenderName)
-	return scheduler.queue.Finish(message.MessageID, StatusSent, "", twilioSID, scheduler.now())
+	log.Printf("forwarded %d from %s", len(fresh), fresh[len(fresh)-1].SenderName)
+	return scheduler.finishAll(fresh, StatusSent, "", twilioSID)
 }
 
-// retryOrFail puts the message back with the backoff for its attempt, or fails it once the
-// backoffs are used up.
-func (scheduler *Scheduler) retryOrFail(message Message, cause error) error {
+// judgeSkipReason asks the forward judge about the burst and returns why it must not be sent, or
+// "" to send it. Judge and history errors forward the burst.
+func (scheduler *Scheduler) judgeSkipReason(ctx context.Context, chat ChatInfo, burst []Message) string {
+	if scheduler.judge == nil {
+		return ""
+	}
 	now := scheduler.now()
-	if message.Attempts > len(retryBackoffs) {
-		log.Printf("failed to forward %s: %v", message.MessageID, cause)
-		return scheduler.queue.Finish(message.MessageID, StatusFailed, cause.Error(), "", now)
+	history, err := scheduler.queue.RecentChat(burst[0].ChatJID, now.Add(-judgeContextWindow), judgeContextLimit)
+	if err != nil {
+		log.Printf("queue error while reading history, forwarding anyway: %v", err)
+		return ""
 	}
-	backoff := retryBackoffs[message.Attempts-1]
-	log.Printf("retrying %s in %s (%v)", message.MessageID, backoff, cause)
-	return scheduler.queue.Retry(message.MessageID, now.Add(backoff), cause.Error(), now)
+	probability, err := scheduler.judge.ForwardProbability(ctx, judgeState(chat, history, burst, now))
+	if err != nil {
+		log.Printf("judge failed, forwarding anyway: %v", err)
+		return ""
+	}
+	log.Printf("judge: %.2f for %d from %s", probability, len(burst), burst[0].ChatJID)
+	if probability > forwardThreshold {
+		return ""
+	}
+	return fmt.Sprintf("not important (%.2f)", probability)
 }
 
-// smsBody formats the forwarded text: "<phone>: <text>", "<phone> @ <group>: <text>", or just the
-// text when there is nothing to put in front of it.
-func smsBody(message Message, chat ChatInfo) string {
-	header := message.SenderPhone
+func (scheduler *Scheduler) finishAll(burst []Message, status MessageStatus, reason string, twilioSID string) error {
+	now := scheduler.now()
+	for _, message := range burst {
+		if err := scheduler.queue.Finish(message.MessageID, status, reason, twilioSID, now); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// retryOrFail puts the burst back with the backoff for its oldest message's attempt, or fails it
+// once the backoffs are used up.
+func (scheduler *Scheduler) retryOrFail(burst []Message, cause error) error {
+	now := scheduler.now()
+	attempts := burst[0].Attempts
+	if attempts > len(retryBackoffs) {
+		log.Printf("failed to forward %d from %s: %v", len(burst), burst[0].ChatJID, cause)
+		return scheduler.finishAll(burst, StatusFailed, cause.Error(), "")
+	}
+	backoff := retryBackoffs[attempts-1]
+	log.Printf("retrying %d from %s in %s (%v)", len(burst), burst[0].ChatJID, backoff, cause)
+	for _, message := range burst {
+		if err := scheduler.queue.Retry(message.MessageID, now.Add(backoff), cause.Error(), now); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// Formatting
+// ---------------------------------------------------------------------------
+
+// smsBody formats a burst as one SMS: "<phone>: <text> / <text>", "<phone> @ <group>: <text>", or
+// "@ <group>: <name>: <text> / <name>: <text>" when several people wrote. When it doesn't fit one
+// segment, the oldest messages are dropped first and "..." marks the gap.
+func smsBody(burst []Message, chat ChatInfo) string {
+	isSingleSender := isSingleSender(burst)
+	header := ""
+	if isSingleSender {
+		header = burst[0].SenderPhone
+	}
 	if chat.IsGroup {
 		header = strings.TrimSpace(header + " @ " + chat.GroupName)
 	}
-	body := message.Text
-	if header != "" {
-		body = header + ": " + message.Text
+	var parts []string
+	for _, message := range burst {
+		if toGSMText(message.Text) == "" {
+			continue
+		}
+		part := message.Text
+		if !isSingleSender {
+			part = firstName(message.SenderName) + ": " + part
+		}
+		parts = append(parts, part)
 	}
-	return singleSegmentSMS(body)
+	for start := range parts {
+		text := strings.Join(parts[start:], " / ")
+		if start > 0 {
+			text = "... " + text
+		}
+		if body := withHeader(header, text); fitsOneSegment(body) {
+			return singleSegmentSMS(body)
+		}
+	}
+	return singleSegmentSMS(withHeader(header, strings.Join(parts, " / ")))
+}
+
+// burstSenderID shows who wrote: the person, or the group name when several people did.
+func burstSenderID(burst []Message, chat ChatInfo) string {
+	if !isSingleSender(burst) {
+		return senderID(chat.GroupName)
+	}
+	return senderID(burst[len(burst)-1].SenderName)
+}
+
+func withHeader(header string, text string) string {
+	if header == "" {
+		return text
+	}
+	return header + ": " + text
+}
+
+func isSingleSender(burst []Message) bool {
+	for _, message := range burst {
+		if message.SenderName != burst[0].SenderName || message.SenderPhone != burst[0].SenderPhone {
+			return false
+		}
+	}
+	return true
+}
+
+func firstName(name string) string {
+	if words := strings.Fields(name); len(words) > 0 {
+		return words[0]
+	}
+	return "?"
 }
 
 // Housekeeping

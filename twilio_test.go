@@ -237,7 +237,7 @@ func TestRejectedSenderIDIsNotAFailedForwardAttempt(t *testing.T) {
 	})
 	harness := newHarness(t)
 	twilio := newTestTwilioSender(fake.server.URL)
-	harness.scheduler = NewScheduler(harness.queue, harness.chats, twilio, twilio, harness.clock.Now)
+	harness.scheduler = NewScheduler(harness.queue, harness.chats, twilio, twilio, nil, harness.clock.Now)
 	harness.scheduler.Resume()
 
 	harness.add("M1", directChat, startTime)
@@ -258,7 +258,7 @@ func TestSenderIDsDisabledIsRetriedUntilFixed(t *testing.T) {
 	})
 	harness := newHarness(t)
 	twilio := newTestTwilioSender(fake.server.URL)
-	harness.scheduler = NewScheduler(harness.queue, harness.chats, twilio, twilio, harness.clock.Now)
+	harness.scheduler = NewScheduler(harness.queue, harness.chats, twilio, twilio, nil, harness.clock.Now)
 	harness.scheduler.Resume()
 
 	harness.add("M1", directChat, startTime)
