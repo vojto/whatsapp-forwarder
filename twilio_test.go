@@ -232,7 +232,7 @@ func TestTwilioDeliveryStatus(t *testing.T) {
 // A rejected name falls back to "WA" within the same attempt.
 func TestRejectedSenderIDIsNotAFailedForwardAttempt(t *testing.T) {
 	fake := newFakeTwilio(t, map[string]twilioReply{
-		"Lenka":        errorReply(http.StatusBadRequest, 21612, "The 'From' is not valid for this destination"),
+		"Lenka":          errorReply(http.StatusBadRequest, 21612, "The 'From' is not valid for this destination"),
 		fallbackSenderID: successReply("SM5"),
 	})
 	harness := newHarness(t)

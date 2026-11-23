@@ -17,11 +17,11 @@ import (
 )
 
 var (
-	ownPhone     = types.NewJID("421900000000", types.DefaultUserServer)
-	lenkaLID   = types.NewJID("123456789", types.HiddenUserServer)
-	lenkaPhone = types.NewJID("421911111111", types.DefaultUserServer)
-	strangerLID  = types.NewJID("999999999", types.HiddenUserServer)
-	familyGroup  = types.NewJID("120363000000000000", types.GroupServer)
+	ownPhone    = types.NewJID("421900000000", types.DefaultUserServer)
+	lenkaLID    = types.NewJID("123456789", types.HiddenUserServer)
+	lenkaPhone  = types.NewJID("421911111111", types.DefaultUserServer)
+	strangerLID = types.NewJID("999999999", types.HiddenUserServer)
+	familyGroup = types.NewJID("120363000000000000", types.GroupServer)
 )
 
 // Fakes
